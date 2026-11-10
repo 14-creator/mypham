@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="vi" class="scroll-smooth">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TranAnh Skin — Dược mỹ phẩm tuyển chọn theo bằng chứng khoa học</title>
+  <meta name="description" content="TranAnh Skin tuyển chọn tinh chất, kem dưỡng, chống nắng và trang điểm dựa trên bằng chứng lâm sàng: nồng độ hoạt chất công bố, thành phần minh bạch, hiệu quả kiểm chứng trên từng loại da." />
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/images/logo.png" />
+
+  <!-- Google Fonts: Cormorant Garamond & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Master Stylesheet (Tailwind CSS compiled build) -->
+  <link rel="stylesheet" href="assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="assets/css/home.css" />
+
+  <style>
+    /* Custom utility animations */
+    .scrollbar-none::-webkit-scrollbar { display: none; }
+    .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .6; }
+    }
+    .animate-pulse-subtle { animation: pulse-subtle 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+    /* ---- Cart drawer: bản build style.css thiếu các class này nên ngăn kéo luôn hiện ---- */
+    #cart-drawer {
+      transform: translateX(0);
+      box-shadow: -12px 0 40px rgba(0,0,0,.12);
+      transition: transform .3s ease, visibility .3s;
+      visibility: visible;
+    }
+    #cart-drawer.translate-x-full {
+      transform: translateX(100%);
+      box-shadow: none;
+      visibility: hidden;
+    }
+    #cart-drawer-backdrop {
+      background: rgba(0,0,0,.35);
+      -webkit-backdrop-filter: blur(2px);
+      backdrop-filter: blur(2px);
+    }
+    /* ---- Nút CTA lớn ở hero ---- */
+    .btn-cta {
+      display: inline-flex; align-items: center; justify-content: center; gap: .9rem;
+      min-height: 3.75rem; padding: 0 2.5rem;
+      border-radius: 9999px;
+      font-size: .875rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; white-space: nowrap;
+      transition: transform .25s ease, box-shadow .25s ease, background-color .25s ease, color .25s ease, border-color .25s ease;
+    }
+    .btn-cta:hover { transform: translateY(-2px); }
+    .btn-cta:active { transform: translateY(0); }
+    .btn-cta:focus-visible { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
+
+    .btn-cta-primary {
+      padding-right: .6rem;
+      background: hsl(var(--foreground)); color: hsl(var(--background));
+      box-shadow: 0 10px 24px -8px rgba(0,0,0,.45);
+    }
+    .btn-cta-primary:hover { box-shadow: 0 16px 32px -10px rgba(0,0,0,.5); }
+    .btn-cta-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2.6rem; height: 2.6rem; border-radius: 9999px;
+      background: hsl(var(--primary)); color: hsl(var(--foreground));
+      transition: transform .25s ease;
+    }
+    .btn-cta-primary:hover .btn-cta-icon { transform: rotate(45deg); }
+
+    .btn-cta-secondary {
+      background: transparent; color: hsl(var(--foreground));
+      border: 1.5px solid hsl(var(--foreground) / .25);
+    }
+    .btn-cta-secondary:hover {
+      background: hsl(var(--foreground)); color: hsl(var(--background)); border-color: hsl(var(--foreground));
+      box-shadow: 0 12px 26px -10px rgba(0,0,0,.4);
+    }
+
+    @media (max-width: 480px) {
+      .btn-cta { width: 100%; min-height: 3.5rem; padding: 0 1.75rem; }
+      .btn-cta-primary { justify-content: space-between; padding-right: .5rem; }
+    }
+
+    /* ---- Toàn bộ nút bo tròn (trừ nút icon, bộ lọc dạng pill và nút trên header) ---- */
+    :is(a, button).rounded-full:not(.btn-cta, .w-9, .whitespace-nowrap, header *) {
+      display: inline-flex; align-items: center; justify-content: center; gap: .6rem;
+      min-height: 3rem; padding-left: 1.75rem; padding-right: 1.75rem;
+      font-size: .8125rem; font-weight: 500; letter-spacing: .14em; line-height: 1.2;
+      cursor: pointer;
+      transition: transform .25s ease, box-shadow .25s ease, background-color .25s ease, color .25s ease, border-color .25s ease;
+    }
+    /* Nút cỡ nhỏ (đánh giá, admin, modal) */
+    :is(a, button).rounded-full.py-2:not(.btn-cta, .w-9, .whitespace-nowrap, header *),
+    :is(a, button).rounded-full.py-2\.5:not(.btn-cta, .w-9, .whitespace-nowrap, header *) {
+      min-height: 2.75rem; padding-left: 1.5rem; padding-right: 1.5rem; font-size: .75rem;
+    }
+    /* Nút cỡ lớn (đặt hàng) */
+    :is(a, button).rounded-full.py-4:not(.btn-cta, .w-9, .whitespace-nowrap, header *) {
+      min-height: 3.5rem; font-size: .875rem;
+    }
+    /* Nút chính (nền đen / xanh xác nhận) */
+    :is(a, button).rounded-full.bg-foreground:not(.btn-cta, header *),
+    :is(a, button).rounded-full.bg-emerald-600:not(.btn-cta, header *) {
+      box-shadow: 0 10px 24px -10px rgba(0,0,0,.45);
+    }
+    :is(a, button).rounded-full.bg-foreground:not(.btn-cta, header *):hover,
+    :is(a, button).rounded-full.bg-emerald-600:not(.btn-cta, header *):hover {
+      transform: translateY(-2px); box-shadow: 0 16px 30px -12px rgba(0,0,0,.5);
+    }
+    /* Nút phụ (viền) */
+    :is(a, button).rounded-full.border:not(.bg-foreground, .bg-emerald-600, .btn-cta, .w-9, .whitespace-nowrap, header *) {
+      border-width: 1.5px; border-color: hsl(var(--foreground) / .25);
+    }
+    :is(a, button).rounded-full.border.border-foreground:not(.bg-foreground, .btn-cta, header *) {
+      border-color: hsl(var(--foreground));
+    }
+    :is(a, button).rounded-full.border:not(.bg-foreground, .bg-emerald-600, .btn-cta, .w-9, .whitespace-nowrap, header *):hover {
+      transform: translateY(-2px);
+      background-color: hsl(var(--foreground)); color: hsl(var(--background)); border-color: hsl(var(--foreground));
+      box-shadow: 0 12px 26px -12px rgba(0,0,0,.4);
+    }
+    :is(a, button).rounded-full:not(.btn-cta, .w-9, .whitespace-nowrap, header *):active { transform: translateY(0); }
+    :is(a, button).rounded-full:not(.btn-cta, header *):focus-visible { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
+    /* Nút "Áp dụng" mã giảm giá */
+    button.rounded-lg.bg-foreground:not(header *) {
+      min-height: 2.75rem; padding-left: 1.25rem; padding-right: 1.25rem;
+      transition: transform .2s ease, background-color .2s ease;
+    }
+    button.rounded-lg.bg-foreground:not(header *):hover { transform: translateY(-1px); }
+    /* Nút icon thêm giỏ nhanh trên thẻ sản phẩm: to hơn một chút */
+    button.w-9.h-9.rounded-full { width: 2.75rem; height: 2.75rem; }
+
+    /* Class còn thiếu trong style.css (nút xác nhận chuyển khoản) */
+    .bg-emerald-600 { background-color: #059669; }
+    .hover\:bg-emerald-700:hover { background-color: #047857; }
+    .text-white { color: #fff; }
+
+    /* ---- Header gọn như bản mẫu ---- */
+    .site-header-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; height: 4rem; }
+    @media (min-width: 640px) { .site-header-row { height: 5rem; } }
+    .site-nav { position: absolute; left: 50%; transform: translateX(-50%); align-items: center; gap: 2.5rem; }
+    .site-nav .nav-link {
+      font-size: 12.5px; letter-spacing: .14em; color: hsl(var(--foreground) / .7);
+      transition: color .2s ease; position: relative; padding: .35rem 0;
+    }
+    .site-nav .nav-link:hover { color: hsl(var(--foreground)); }
+    .site-nav .nav-link.font-medium { color: hsl(var(--foreground)); }
+    .site-actions { display: flex; align-items: center; gap: 1.25rem; }
+    .site-action-link {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: 12.5px; letter-spacing: .12em; color: hsl(var(--foreground) / .8);
+      background: none; border: 0; padding: .25rem 0; cursor: pointer;
+      transition: color .2s ease;
+    }
+    .site-action-link:hover { color: hsl(var(--foreground)); }
+    .site-cart .cart-count-badge {
+      align-items: center; justify-content: center;
+      min-width: 1.25rem; height: 1.25rem; padding: 0 .3rem; border-radius: 9999px;
+      background: hsl(var(--primary)); color: hsl(var(--foreground));
+      font-size: 11px; font-weight: 600; letter-spacing: 0; line-height: 1;
+    }
+    .site-cart .cart-count-badge:not(.hidden) { display: inline-flex; }
+
+    /* ---- Trang chủ: hero giữa trang + 3 ảnh + dải cam kết ---- */
+    .home-hero {
+      position: relative; overflow: hidden;
+      background: hsl(var(--background));
+      border-bottom: 1px solid hsl(var(--border) / .6);
+    }
+    .home-hero-inner {
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+      padding-top: clamp(3rem, 7vh, 5.5rem);
+    }
+    .home-eyebrow {
+      font-size: 11px; font-weight: 500; letter-spacing: .28em; text-transform: uppercase;
+      color: hsl(var(--muted-foreground));
+    }
+    .home-title {
+      margin-top: 1.5rem;
+      font-family: var(--font-heading); font-weight: 400; letter-spacing: -.015em; line-height: 1.08;
+      font-size: clamp(2.4rem, 1.2rem + 4.6vw, 4.6rem);
+      color: hsl(var(--foreground));
+    }
+    .home-lead {
+      margin-top: 1.5rem; max-width: 36rem;
+      font-size: 1rem; line-height: 1.7; font-weight: 300;
+      color: hsl(var(--muted-foreground));
+    }
+
+    /* Nút "Xem tất cả" dạng ô + mũi tên */
+    .btn-seg {
+      margin-top: 2rem;
+      display: inline-flex; align-items: stretch;
+      height: 3.5rem;
+      border: 1px solid hsl(var(--foreground)); border-radius: .4rem; overflow: hidden;
+      background: hsl(var(--primary)); color: hsl(var(--foreground));
+      font-size: .8125rem; font-weight: 500; letter-spacing: .22em; text-transform: uppercase;
+      transition: transform .25s ease, box-shadow .25s ease, background-color .25s ease, color .25s ease;
+    }
+    .btn-seg-label { display: inline-flex; align-items: center; padding: 0 2rem; }
+    .btn-seg-arrow {
+      display: inline-flex; align-items: center; justify-content: center; width: 3.5rem;
+      border-left: 1px solid hsl(var(--foreground));
+      transition: transform .25s ease;
+    }
+    .btn-seg:hover {
+      background: hsl(var(--foreground)); color: hsl(var(--background));
+      transform: translateY(-2px); box-shadow: 0 14px 28px -12px rgba(0,0,0,.45);
+    }
+    .btn-seg:hover .btn-seg-arrow { border-left-color: hsl(var(--background) / .45); }
+    .btn-seg:hover .btn-seg-arrow svg { transform: translateX(3px); }
+    .btn-seg-arrow svg { transition: transform .25s ease; }
+    .btn-seg:focus-visible { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
+
+    .home-hero-gallery {
+      margin-top: clamp(2.5rem, 5vh, 4rem);
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(.6rem, 1.4vw, 1.25rem);
+      /* chiều cao đủ để bị dải cam kết che phần dưới */
+      padding-bottom: 5rem;
+    }
+    .home-hero-tile {
+      display: block; overflow: hidden; background: hsl(var(--secondary));
+      border-radius: 1.25rem 1.25rem 0 0;
+      aspect-ratio: 3 / 4.4;
+    }
+    .home-hero-tile img {
+      width: 100%; height: 100%; object-fit: cover;
+      transition: transform .8s ease;
+    }
+    .home-hero-tile:hover img { transform: scale(1.04); }
+
+    .home-trust-strip {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+      background: hsl(var(--secondary)); border-top: 1px solid hsl(var(--border));
+      padding: 1.1rem 1.25rem;
+    }
+    .home-trust-strip ul {
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: .35rem 0; max-width: 72rem; margin: 0 auto;
+    }
+    .home-trust-strip li {
+      display: inline-flex; align-items: center;
+      font-size: 10.5px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase;
+      color: hsl(var(--muted-foreground));
+    }
+    .home-trust-strip li::after {
+      content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 9999px;
+      background: hsl(var(--primary)); margin: 0 1.6rem;
+    }
+    .home-trust-strip li:last-child::after { display: none; }
+
+    @media (min-width: 900px) {
+      /* Hero cao đúng một màn hình, ảnh bị dải cam kết cắt ở đáy như bản mẫu */
+      .home-hero { height: calc(100vh - 5rem); min-height: 44rem; max-height: 60rem; }
+    }
+    @media (max-width: 899px) {
+      .home-hero-gallery { padding-bottom: 0; }
+      .home-hero-tile { aspect-ratio: 3 / 4.6; }
+      .home-trust-strip { position: static; margin-top: 1.25rem; }
+      .home-trust-strip li::after { margin: 0 .9rem; }
+      .btn-seg-label { padding: 0 1.5rem; }
+    }
+
+    /* Class còn thiếu cho form đăng nhập / đăng ký */
+    .mb-1\.5 { margin-bottom: .375rem; }
+    .pr-12 { padding-right: 3rem; }
+    .max-w-\[120px\] { max-width: 120px; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .px-3\.5 { padding-left: .875rem; padding-right: .875rem; }
+    .focus\:ring-ring:focus { --tw-ring-color: hsl(var(--ring)); }
+
+    /* Các class màu còn thiếu trong style.css */
+    .bg-secondary\/80 { background-color: hsl(var(--secondary) / .8); }
+    .bg-emerald-500 { background-color: #10b981; }
+    .text-emerald-600 { color: #059669; }
+    .bg-foreground\/90, .hover\:bg-foreground\/90:hover { background-color: hsl(var(--foreground) / .9); }
+
+    /* ======================================================== */
+    /* Ô NHẬP LIỆU: to, thoáng, viền rõ, focus nổi bật (áp dụng cho toàn site) */
+    /* Không đụng tới ô số lượng (#detail-qty), checkbox/radio và ô trong bảng Admin */
+    /* ======================================================== */
+    :is(input, select, textarea).rounded-full { --field-radius: 9999px; }
+
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *) {
+      box-sizing: border-box;
+      min-height: 3.25rem;
+      padding-top: .8rem; padding-bottom: .8rem;
+      font-size: 1rem; line-height: 1.5; font-weight: 400;
+      color: hsl(var(--foreground));
+      background-color: hsl(var(--background));
+      border: 1.5px solid hsl(var(--foreground) / .16);
+      border-radius: var(--field-radius, .9rem);
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+    }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):not([class*="pl-"]):not([class*="pr-"]) { padding-left: 1.15rem; padding-right: 1.15rem; }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *)::placeholder { color: hsl(var(--muted-foreground) / .65); font-weight: 300; opacity: 1; }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):hover:not(:focus) { border-color: hsl(var(--foreground) / .32); }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):focus {
+      outline: none;
+      border-color: hsl(var(--primary));
+      box-shadow: 0 0 0 4px hsl(var(--primary) / .22);
+    }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):disabled { opacity: .55; cursor: not-allowed; }
+
+    /* Ô nhiều dòng */
+    textarea:not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *) {
+      min-height: 7.5rem; line-height: 1.65; resize: vertical;
+    }
+
+    /* Ô chọn (select): mũi tên riêng, chừa chỗ bên phải */
+    select:not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):not([class*="pl-"]):not([class*="pr-"]) {
+      -webkit-appearance: none; appearance: none; cursor: pointer;
+      padding-right: 2.9rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 1rem center; background-size: 1.15rem;
+    }
+
+    /* Thanh lọc dạng viên thuốc (cửa hàng): nhỏ gọn hơn nhưng vẫn cao hơn trước */
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *).rounded-full { min-height: 2.875rem; padding-top: .55rem; padding-bottom: .55rem; font-size: .9375rem; }
+    select:not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *).rounded-full { padding-left: 1.15rem; background-position: right .9rem center; }
+    select.rounded-full:not([id=detail-qty]):not(table *) { flex: none; width: auto; }
+    #shop-search-input ~ svg, #shop-search-input ~ i, #shop-search-input ~ button { top: 50%; transform: translateY(-50%); }
+
+    /* Báo lỗi khi nhập sai định dạng (chỉ sau khi người dùng đã nhập/rời ô) */
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):user-invalid { border-color: hsl(var(--destructive)); }
+    :is(input, select, textarea):not([type=checkbox],[type=radio],[type=hidden],[type=range],[type=file],[type=submit],[type=button],[type=image],[type=color]):not([id=detail-qty]):not(table *):user-invalid:focus { box-shadow: 0 0 0 4px hsl(var(--destructive) / .18); }
+
+    /* Checkbox / radio to hơn, đúng màu thương hiệu */
+    input[type=checkbox], input[type=radio] {
+      width: 1.2rem; height: 1.2rem; flex-shrink: 0; cursor: pointer;
+      accent-color: hsl(var(--primary));
+    }
+
+    /* Nút "Áp dụng" mã giảm giá cao bằng ô nhập bên cạnh */
+    button.rounded-lg.bg-foreground:not(header *) { min-height: 3.25rem; border-radius: .9rem; white-space: nowrap; }
+  </style>
+  <link rel="stylesheet" href="assets/css/home.css?v=6" />
+</head>
+<body class="min-h-screen bg-background text-foreground font-body antialiased selection:bg-primary/20 selection:text-foreground">
+
+  <!-- ======================================================== -->
+  <!-- MAIN STICKY NAVIGATION HEADER -->
+  <!-- ======================================================== -->
+  <header class="site-header sticky top-0 z-40 border-b border-border/70 bg-background/95 backdrop-blur-md">
+    <div class="page-container site-header-row">
+
+      <!-- Brand Logo -->
+      <a href="#/" class="flex items-baseline gap-2 group">
+        <span class="font-heading text-2xl sm:text-[28px] tracking-[0.16em] text-foreground font-medium group-hover:opacity-85 transition">TRANANH</span>
+        <span class="text-[10px] uppercase tracking-[0.3em] text-muted-foreground hidden sm:block">skin</span>
+      </a>
+
+      <!-- Desktop Navigation Menu -->
+      <nav class="site-nav hidden md:flex">
+        <a href="#/" class="nav-link">Trang chủ</a>
+        <a href="#/san-pham" class="nav-link">Sản phẩm</a>
+        <a href="#cau-chuyen" class="nav-link">Câu chuyện</a>
+        <a href="#lien-he" class="nav-link">Liên hệ</a>
+      </nav>
+
+      <!-- Right Action Items -->
+      <div class="site-actions">
+        <!-- Quản trị (chỉ hiện với tài khoản admin) -->
+        <a href="#/admin" data-auth="admin" style="display:none" class="site-action-link" title="Quản trị cửa hàng">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Quản trị</span>
+        </a>
+
+        <!-- Đăng nhập (khách) -->
+        <a href="#/dang-nhap" data-auth="guest" class="site-action-link" title="Đăng nhập">
+          <i data-lucide="user" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Đăng nhập</span>
+        </a>
+
+        <!-- Tài khoản (đã đăng nhập) -->
+        <a href="#/tai-khoan" data-auth="user" style="display:none" class="site-action-link" title="Tài khoản của tôi">
+          <i data-lucide="user-round" class="w-4 h-4"></i>
+          <span data-auth-name class="hidden sm:inline max-w-[120px] truncate"></span>
+        </a>
+
+        <!-- Giỏ hàng -->
+        <button onclick="App.openCartDrawer()" class="site-action-link site-cart" aria-label="Giỏ hàng">
+          <i data-lucide="shopping-bag" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Giỏ hàng</span>
+          <span class="cart-count-badge hidden">0</span>
+        </button>
+
+        <!-- Mobile Menu Toggle Button -->
+        <button onclick="document.getElementById('mobile-menu').classList.toggle('hidden')" class="md:hidden p-2 text-foreground rounded-lg hover:bg-secondary" aria-label="Menu">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Dropdown Navigation -->
+    <div id="mobile-menu" class="hidden md:hidden border-t border-border/60 bg-background/95 px-6 py-4 space-y-3 backdrop-blur-lg">
+      <a href="#/" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="block text-sm py-1.5 font-medium text-foreground">Trang chủ</a>
+      <a href="#/san-pham" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="block text-sm py-1.5 text-foreground/80">Sản phẩm</a>
+      <a href="#cau-chuyen" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="block text-sm py-1.5 text-foreground/80">Câu chuyện</a>
+      <a href="#lien-he" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="block text-sm py-1.5 text-foreground/80">Liên hệ</a>
+      <a href="#/chinh-sach" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="block text-sm py-1.5 text-foreground/80">Chính sách vận chuyển & đổi trả</a>
+      <div class="pt-3 border-t border-border/60 flex items-center justify-between gap-4">
+        <a href="#/dang-nhap" data-auth="guest" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="inline-flex items-center gap-2 text-xs font-semibold text-foreground">
+          <i data-lucide="user" class="w-4 h-4"></i>
+          Đăng nhập / Đăng ký
+        </a>
+        <a href="#/tai-khoan" data-auth="user" style="display:none" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="inline-flex items-center gap-2 text-xs font-semibold text-foreground">
+          <i data-lucide="user-round" class="w-4 h-4"></i>
+          Tài khoản của tôi
+        </a>
+        <a href="#/admin" data-auth="admin" style="display:none" onclick="document.getElementById('mobile-menu').classList.add('hidden')" class="inline-flex items-center gap-2 text-xs font-semibold text-primary">
+          <i data-lucide="shield" class="w-4 h-4"></i>
+          Quản trị hệ thống (Admin)
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ======================================================== -->
+  <!-- DYNAMIC SPA CONTENT CONTAINER -->
+  <!-- ======================================================== -->
+  <main id="app-content" class="min-h-[75vh]">
+    <!-- Loaded dynamically by App router -->
+  </main>
+
+  <!-- ======================================================== -->
+  <!-- SLIDE-OVER CART DRAWER -->
+  <!-- ======================================================== -->
+  <div id="cart-drawer-backdrop" onclick="App.closeCartDrawer()" class="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-xs opacity-0 pointer-events-none transition-opacity duration-300"></div>
+  
+  <div id="cart-drawer" class="fixed top-0 right-0 z-50 h-full w-full max-w-md bg-background shadow-2xl border-l border-border transform translate-x-full transition-transform duration-300 flex flex-col justify-between">
+    <!-- Drawer Header -->
+    <div class="p-6 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <i data-lucide="shopping-bag" class="w-5 h-5 text-primary"></i>
+        <h3 class="font-heading text-xl text-foreground font-semibold">Giỏ hàng của bạn</h3>
+      </div>
+      <button onclick="App.closeCartDrawer()" class="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- Free Shipping Progress -->
+    <div id="drawer-freeship-notice" class="px-6 py-2.5 bg-secondary/60 border-b border-border/60 text-xs text-muted-foreground text-center">
+      Mua thêm để được Miễn phí vận chuyển
+    </div>
+
+    <!-- Items Scroll Area -->
+    <div id="cart-drawer-items" class="flex-1 overflow-y-auto px-6 py-2 divide-y divide-border/60">
+      <!-- Injected by Store/App -->
+    </div>
+
+    <!-- Drawer Footer -->
+    <div id="cart-drawer-footer" class="p-6 border-t border-border bg-secondary/20 space-y-4">
+      <div class="flex items-center justify-between text-sm">
+        <span class="text-muted-foreground">Tạm tính:</span>
+        <span id="drawer-subtotal" class="font-bold text-foreground text-lg">0 đ</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">Phí vận chuyển và voucher được tính khi tiến hành đặt hàng.</p>
+      <a href="#/gio-hang" onclick="App.closeCartDrawer()" class="block w-full py-3.5 px-4 text-center rounded-full bg-foreground hover:bg-foreground/90 text-background text-xs uppercase tracking-wider font-semibold transition shadow-md">
+        Tiến hành đặt hàng
+      </a>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- FOOTER -->
+  <!-- ======================================================== -->
+  <footer id="lien-he" class="border-t border-border/80 bg-background pt-16 pb-12">
+    <div class="page-container">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 pb-12 border-b border-border/60">
+        
+        <!-- Brand Narrative & Clinical Philosophy -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="flex items-baseline gap-2">
+            <span class="font-heading text-2xl tracking-[0.16em] text-foreground font-semibold">TRANANH</span>
+            <span class="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">skin</span>
+          </div>
+          <p class="text-xs sm:text-sm text-muted-foreground font-light leading-relaxed max-w-sm">
+            Dược mỹ phẩm tuyển chọn theo bằng chứng khoa học, cho nghi thức chăm sóc da mỗi ngày. Nồng độ công bố minh bạch, kiểm chứng lâm sàng cho làn da người Việt.
+          </p>
+          <div class="pt-2 flex items-center gap-3 text-xs text-muted-foreground">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="shield-check" class="w-4 h-4 text-primary"></i>
+              100% Hoạt chất công bố
+            </span>
+            <span>·</span>
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="heart" class="w-4 h-4 text-primary"></i>
+              Cruelty-Free
+            </span>
+          </div>
+        </div>
+
+        <!-- Shop Categories Navigation -->
+        <div class="lg:col-span-2 space-y-3">
+          <h4 class="text-xs uppercase tracking-[0.2em] font-semibold text-foreground">Bộ sưu tập</h4>
+          <ul class="space-y-2 text-xs text-muted-foreground font-light">
+            <li><a href="#/san-pham?category=Ch%C4%83m+s%C3%B3c+da" class="hover:text-foreground transition">Chăm sóc da (8)</a></li>
+            <li><a href="#/san-pham?category=L%C3%A0m+s%E1%BA%A1ch" class="hover:text-foreground transition">Làm sạch da (4)</a></li>
+            <li><a href="#/san-pham?category=Ch%E1%BB%91ng+n%E1%BA%AFng" class="hover:text-foreground transition">Chống nắng phổ rộng (3)</a></li>
+            <li><a href="#/san-pham?category=Trang+%C4%91i%E1%BB%83m" class="hover:text-foreground transition">Trang điểm dưỡng da (4)</a></li>
+          </ul>
+        </div>
+
+        <!-- Brand & Policies -->
+        <div class="lg:col-span-2 space-y-3">
+          <h4 class="text-xs uppercase tracking-[0.2em] font-semibold text-foreground">Về chúng tôi</h4>
+          <ul class="space-y-2 text-xs text-muted-foreground font-light">
+            <li><a href="#cau-chuyen" class="hover:text-foreground transition">Câu chuyện thương hiệu</a></li>
+            <li><a href="#nghi-thuc" class="hover:text-foreground transition">Nghi thức phác đồ 3 bước</a></li>
+            <li><a href="#/chinh-sach" class="hover:text-foreground transition">Chính sách vận chuyển</a></li>
+            <li><a href="#/chinh-sach" class="hover:text-foreground transition">Đổi trả trong 7 ngày</a></li>
+            <li data-auth="guest"><a href="#/dang-nhap" class="hover:text-foreground transition">Đăng nhập / Đăng ký</a></li>
+            <li data-auth="user" style="display:none"><a href="#/tai-khoan" class="hover:text-foreground transition">Tài khoản của tôi</a></li>
+            <li data-auth="admin" style="display:none"><a href="#/admin" class="hover:text-primary transition font-medium">Bảng quản trị (Admin)</a></li>
+          </ul>
+        </div>
+
+        <!-- Contact & Consultation Details -->
+        <div class="lg:col-span-3 space-y-3">
+          <h4 class="text-xs uppercase tracking-[0.2em] font-semibold text-foreground">Liên hệ chuyên môn</h4>
+          <ul class="space-y-2.5 text-xs text-muted-foreground font-light">
+            <li class="flex items-center gap-2">
+              <i data-lucide="phone" class="w-3.5 h-3.5 text-primary shrink-0"></i>
+              <a href="tel:19006789" class="hover:text-foreground font-medium text-foreground">1900 6789</a> (8:30 - 21:00)
+            </li>
+            <li class="flex items-center gap-2">
+              <i data-lucide="mail" class="w-3.5 h-3.5 text-primary shrink-0"></i>
+              <a href="mailto:hello@trananhskin.vn" class="hover:text-foreground">hello@trananhskin.vn</a>
+            </li>
+            <li class="flex items-start gap-2">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-primary shrink-0 mt-0.5"></i>
+              <span>128 Hai Bà Trưng, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Bottom Disclaimer & Copyright -->
+      <div class="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-muted-foreground gap-4 font-light">
+        <p>© 2026 TranAnh Skin. Mọi quyền được bảo lưu. Công thức dược mỹ phẩm tuyển chọn.</p>
+        <p class="text-[11px]">Được xây dựng & tối ưu hoá cho trải nghiệm mượt mà, độc lập 100%.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ======================================================== -->
+  <!-- JAVASCRIPT SCRIPTS -->
+  <!-- ======================================================== -->
+  <!-- Lucide Icons -->
+  <script src="assets/js/lucide.min.js"></script>
+  <!-- Data -->
+  <script src="assets/js/products-data.js"></script>
+  <!-- Store & State Management -->
+  <script src="assets/js/store.js"></script>
+  <!-- Đăng ký / Đăng nhập -->
+  <script src="assets/js/auth.js"></script>
+  <!-- Địa chỉ máy chủ xác nhận thanh toán tự động (payment-server). Để trống = chế độ thử nghiệm có nút xác nhận thủ công. -->
+     <script>window.PAYMENT_API = (window.location.protocol === 'file:') ? 'http://localhost:8080' : window.location.origin;</script>
+  <!-- Main Application Router & Controllers -->
+  <script src="assets/js/app.js?v=4"></script>
+
+  <!-- Cart drawer behaviour: không bật ngăn kéo khi đang ở trang giỏ hàng, có overlay mờ, đóng bằng Esc / cuộn trang -->
+  <script>
+    (function () {
+      if (!window.App) return;
+
+      var backdrop = document.getElementById('cart-drawer-backdrop');
+      var drawer = document.getElementById('cart-drawer');
+      var isCartPage = function () { return location.hash.indexOf('#/gio-hang') === 0; };
+      var isOpen = function () { return !drawer.classList.contains('translate-x-full'); };
+
+      var originalOpen = App.openCartDrawer && App.openCartDrawer.bind(App);
+      App.openCartDrawer = function () {
+        if (isCartPage()) {
+          // Đang ở trang Giỏ hàng & Đặt hàng: không bật ngăn kéo, đưa người dùng về đầu trang
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        if (originalOpen) originalOpen.apply(App, arguments);
+      };
+
+      // Vào trang giỏ hàng thì đóng ngăn kéo nếu đang mở
+      window.addEventListener('hashchange', function () {
+        if (isCartPage() && isOpen() && App.closeCartDrawer) App.closeCartDrawer();
+      });
+      // Nếu trang được tải thẳng vào #/gio-hang mà ngăn kéo đã tự bật
+      window.addEventListener('load', function () {
+        if (isCartPage() && isOpen() && App.closeCartDrawer) App.closeCartDrawer();
+      });
+
+      // Đóng bằng phím Esc
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && isOpen() && App.closeCartDrawer) App.closeCartDrawer();
+      });
+    })();
+  </script>
+
+</body>
+</html>
