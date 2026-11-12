@@ -166,6 +166,12 @@
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
+    // Các trang mới (Giới thiệu, Bài viết, FAQ, Liên hệ, Tra cứu đơn) nằm trong pages.js
+    if (window.Pages && Pages.handle(hash)) {
+      updateNavActive(hash.split('?')[0].replace(/^(#\/[^\/]+).*$/, '$1'));
+      return;
+    }
+
     // Handle #/san-pham/:slug
     if (hash.startsWith('#/san-pham/')) {
       const slug = hash.replace('#/san-pham/', '').split('?')[0];
@@ -186,7 +192,7 @@
     const hashPath = hash.split('?')[0];
 
     // Trang tài khoản: đăng nhập / đăng ký / thông tin tài khoản
-    if (hashPath === '#/dang-nhap' || hashPath === '#/dang-ky' || hashPath === '#/tai-khoan') {
+    if (hashPath === '#/dang-nhap' || hashPath === '#/dang-ky' || hashPath === '#/tai-khoan' || hashPath === '#/vi') {
       if (window.Auth) {
         Auth.renderPage(hash);
       } else {
@@ -199,6 +205,13 @@
     // Trang quản trị chỉ dành cho tài khoản admin
     if (hashPath === '#/admin' && !(window.Auth && Auth.isAdmin())) {
       window.location.hash = '#/dang-nhap?redirect=admin';
+      return;
+    }
+
+    // Giỏ hàng & thanh toán chỉ dành cho tài khoản đã đăng nhập
+    if (hashPath === '#/gio-hang' && !(window.Auth && Auth.isLoggedIn())) {
+      showToast('Vui lòng đăng nhập hoặc đăng ký tài khoản để mua hàng', 'error');
+      window.location.hash = '#/dang-nhap?redirect=gio-hang';
       return;
     }
 
@@ -519,12 +532,12 @@
     const all = Store.getProducts();
     const pick = (slug, i) => (all.find(p => p.slug === slug) || all[i] || {}).image || 'assets/images/hero-banner.png';
     const posts = [
-      { img: pick('tinh-chat-vitamin-c-15', 0), meta: 'Hoạt chất · 5 phút đọc', title: 'Vitamin C 15%: dùng sáng hay tối để da sáng đều hơn?', text: 'Thứ tự thoa, nồng độ phù hợp và lý do vitamin C luôn đi cùng chống nắng.' },
-      { img: pick('kem-duong-phuc-hoi-ceramide', 1), meta: 'Da nhạy cảm · 4 phút đọc', title: 'Ceramide giúp phục hồi hàng rào bảo vệ da như thế nào', text: 'Dấu hiệu da tổn thương và cách xây lại nền da trong ba tuần.' },
-      { img: pick('kem-chong-nang-pho-rong-spf50', 2), meta: 'Chống nắng · 3 phút đọc', title: 'SPF50+ PA++++ có cần thoa lại khi ngồi trong nhà?', text: 'Ánh sáng xanh, cửa kính và lượng kem chống nắng đúng cho cả khuôn mặt.' }
+      { slug: 'vitamin-c-sang-hay-toi', img: pick('tinh-chat-vitamin-c-15', 0), meta: 'Hoạt chất · 5 phút đọc', title: 'Vitamin C 15%: dùng sáng hay tối để da sáng đều hơn?', text: 'Thứ tự thoa, nồng độ phù hợp và lý do vitamin C luôn đi cùng chống nắng.' },
+      { slug: 'ceramide-phuc-hoi-hang-rao', img: pick('kem-duong-phuc-hoi-ceramide', 1), meta: 'Da nhạy cảm · 4 phút đọc', title: 'Ceramide giúp phục hồi hàng rào bảo vệ da như thế nào', text: 'Dấu hiệu da tổn thương và cách xây lại nền da trong ba tuần.' },
+      { slug: 'spf50-trong-nha', img: pick('kem-chong-nang-pho-rong-spf50', 2), meta: 'Chống nắng · 3 phút đọc', title: 'SPF50+ PA++++ có cần thoa lại khi ngồi trong nhà?', text: 'Ánh sáng xanh, cửa kính và lượng kem chống nắng đúng cho cả khuôn mặt.' }
     ];
     return posts.map(p => `
-      <a href="#/san-pham" class="post-card">
+      <a href="#/bai-viet/${p.slug}" class="post-card">
         <div class="post-img"><img src="${p.img}" alt="${p.title}" loading="lazy" /></div>
         <div><p class="post-meta">${p.meta}</p><h3>${p.title}</h3><p style="margin-top:.5rem">${p.text}</p></div>
       </a>`).join('');
@@ -1054,7 +1067,7 @@
     const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
 
     if (product) {
-      Store.addToCart(product, qty);
+      if (!Store.addToCart(product, qty)) return;
       if (buyNow) {
         window.location.hash = '#/gio-hang';
       } else {
@@ -1106,6 +1119,13 @@
       renderIcons();
       return;
     }
+
+    const cartUser = window.Auth ? Auth.currentUser() : null;
+    const walletBalance = cartUser ? Store.getBalance(cartUser.id) : 0;
+    const walletEnough = walletBalance >= summary.total;
+    const prefillName = cartUser && cartUser.role !== 'admin'
+      ? String(cartUser.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+      : '';
 
     container.innerHTML = `
       <div class="page-container py-10 sm:py-16">
@@ -1174,7 +1194,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-xs font-medium text-foreground mb-1.5">Họ và tên người nhận <span class="text-destructive">*</span></label>
-                    <input type="text" id="cust-name" required placeholder="Nguyễn Văn A" class="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                    <input type="text" id="cust-name" required value="${prefillName}" placeholder="Nguyễn Văn A" class="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-foreground mb-1.5">Số điện thoại <span class="text-destructive">*</span></label>
@@ -1195,15 +1215,27 @@
                 <!-- Payment Method Selection -->
                 <div class="pt-4 border-t border-border/60">
                   <label class="block text-xs font-medium text-foreground mb-2">Phương thức thanh toán <span class="text-destructive">*</span></label>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label class="flex items-start gap-3 p-3.5 rounded-xl border-2 border-primary bg-primary/5 cursor-pointer hover:border-primary transition">
-                      <input type="radio" name="payment_method" value="VietQR" checked class="text-primary focus:ring-0 mt-0.5" />
+                  <div class="grid grid-cols-1 gap-3">
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-2 border-primary bg-primary/5' : 'border-border/80 bg-secondary/30 opacity-80'} cursor-pointer hover:border-primary transition">
+                      <input type="radio" name="payment_method" value="Wallet" ${walletEnough ? 'checked' : 'disabled'} class="text-primary focus:ring-0 mt-0.5" />
+                      <div class="flex-1">
+                        <div class="flex items-center justify-between gap-2">
+                          <p class="text-xs font-semibold text-foreground">Ví TranAnh</p>
+                          <span class="text-xs font-semibold text-foreground">${Store.formatMoney(walletBalance)}</span>
+                        </div>
+                        ${walletEnough
+                          ? '<p class="text-[10px] text-muted-foreground mt-0.5">Trừ trực tiếp vào số dư ví của tài khoản bạn, đơn được xác nhận ngay.</p>'
+                          : `<p class="text-[10px] text-destructive mt-0.5">Số dư chưa đủ (thiếu ${Store.formatMoney(summary.total - walletBalance)}). <a href="#/vi" class="underline font-medium">Nạp thêm vào ví</a></p>`}
+                      </div>
+                    </label>
+
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-border/80 bg-secondary/30' : 'border-2 border-primary bg-primary/5'} cursor-pointer hover:border-primary transition">
+                      <input type="radio" name="payment_method" value="VietQR" ${walletEnough ? '' : 'checked'} class="text-primary focus:ring-0 mt-0.5" />
                       <div>
                         <div class="flex items-center gap-1.5">
-                          <p class="text-xs font-semibold text-foreground">Ví / QR Ngân hàng</p>
-                          <span class="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">⚡ Tự động vận chuyển</span>
+                          <p class="text-xs font-semibold text-foreground">Chuyển khoản QR Ngân hàng</p>
                         </div>
-                        <p class="text-[10px] text-muted-foreground mt-0.5">Hiện mã QR STK của shop. Chuyển thành công sẽ tự động xác nhận đơn & chuyển hàng đi ngay.</p>
+                        <p class="text-[10px] text-muted-foreground mt-0.5">Hiện mã QR STK của shop. Cửa hàng đối chiếu và xác nhận đơn sau khi nhận tiền.</p>
                       </div>
                     </label>
 
@@ -1316,6 +1348,12 @@
     const paymentMethodEl = document.querySelector('input[name="payment_method"]:checked');
     const paymentMethod = paymentMethodEl ? paymentMethodEl.value : 'COD';
 
+    if (!(window.Auth && Auth.isLoggedIn())) {
+      showToast('Vui lòng đăng nhập để đặt hàng', 'error');
+      window.location.hash = '#/dang-nhap?redirect=gio-hang';
+      return;
+    }
+
     if (!name || !phone || !address) {
       showToast('Vui lòng điền đầy đủ họ tên, SĐT và địa chỉ nhận hàng', 'error');
       return;
@@ -1324,7 +1362,9 @@
     try {
       const order = Store.createOrder({
         customer: { name, phone, address, notes },
-        paymentMethod: paymentMethod === 'VietQR' ? 'Chuyển khoản VietQR' : 'COD (Thanh toán khi nhận hàng)'
+        paymentMethod: paymentMethod === 'Wallet'
+          ? Store.WALLET_METHOD
+          : (paymentMethod === 'VietQR' ? 'Chuyển khoản VietQR' : 'COD (Thanh toán khi nhận hàng)')
       });
 
       if (paymentMethod === 'VietQR') {
@@ -1411,6 +1451,7 @@
           <p><strong>Người nhận:</strong> ${order.customer.name} - ${order.customer.phone}</p>
           <p><strong>Địa chỉ:</strong> ${order.customer.address}</p>
           <p><strong>Thanh toán:</strong> ${order.paymentMethod}</p>
+          ${order.walletPaid ? `<p><strong>Số dư ví còn lại:</strong> ${Store.formatMoney(Store.getBalance(order.userId))}</p>` : ''}
           <p><strong>Tổng tiền:</strong> <span class="font-bold text-foreground text-sm">${Store.formatMoney(order.total)}</span></p>
         </div>
         <p class="text-[11px] text-muted-foreground">Chuyên viên TranAnh Skin sẽ liên hệ xác nhận đơn và gửi hàng trong vòng 24h.</p>
@@ -1647,6 +1688,7 @@
               Tôi đã thanh toán
             </button>
             <p class="text-[10px] text-muted-foreground text-center">
+              * Mã QR theo chuẩn VietQR (Napas 247): quét bằng ứng dụng của <strong class="text-foreground">bất kỳ ngân hàng hoặc ví điện tử nào</strong> có hỗ trợ quét QR (Vietcombank, VietinBank, BIDV, Agribank, Techcombank, ACB, MB, VPBank, TPBank, Sacombank, MoMo...). Chuyển khoản liên ngân hàng vẫn nhận được.<br>
               * Vui lòng giữ nguyên nội dung chuyển khoản <strong class="text-foreground">${order.id}</strong> và số tiền đúng như trên mã QR.
             </p>` : `
             <button id="btn-manual-confirm" onclick="triggerAutoConfirm()" class="w-full py-3.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs uppercase tracking-widest font-semibold shadow-lg transition flex items-center justify-center gap-2 animate-bounce">
@@ -1882,6 +1924,148 @@
   }
 
   // ==========================================
+  // WALLET: NẠP TIỀN (QR) & DUYỆT CỦA QUẢN TRỊ
+  // ==========================================
+  const TOPUP_BANK = { bin: '970422', code: 'MB', account: '0379949095', name: 'MB Bank (Quân Đội)', holder: 'TRAN THI NGOC ANH' };
+
+  function walletEsc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function buildTopupQr(amount, memo) {
+    function tlv(id, val) { return id + String(val.length).padStart(2, '0') + val; }
+    function crc16(str) {
+      let crc = 0xFFFF;
+      for (let i = 0; i < str.length; i++) {
+        crc ^= str.charCodeAt(i) << 8;
+        for (let b = 0; b < 8; b++) {
+          crc = (crc & 0x8000) ? (((crc << 1) ^ 0x1021) & 0xFFFF) : ((crc << 1) & 0xFFFF);
+        }
+      }
+      return crc.toString(16).toUpperCase().padStart(4, '0');
+    }
+    try {
+      if (typeof qrcode !== 'function') throw new Error('Thiếu thư viện qrcode.js');
+      const cleanInfo = String(memo).replace(/[^A-Za-z0-9 \-]/g, '').slice(0, 23);
+      const merchant = tlv('00', 'A000000727') + tlv('01', tlv('00', TOPUP_BANK.bin) + tlv('01', TOPUP_BANK.account)) + tlv('02', 'QRIBFTTA');
+      const body = tlv('00', '01') + tlv('01', '12') + tlv('38', merchant) + tlv('53', '704') +
+        tlv('54', String(Math.round(amount))) + tlv('58', 'VN') + tlv('62', tlv('08', cleanInfo)) + '6304';
+      const qr = qrcode(0, 'M');
+      qr.addData(body + crc16(body));
+      qr.make();
+      const svg = qr.createSvgTag({ cellSize: 4, margin: 8, scalable: true })
+        .replace('<svg ', '<svg style="display:block;width:100%;height:100%" ');
+      return `<div role="img" aria-label="Mã VietQR nạp ví ${walletEsc(memo)}" style="width:14rem;height:14rem;max-width:100%;margin:0 auto">${svg}</div>`;
+    } catch (err) {
+      const url = `https://img.vietqr.io/image/${TOPUP_BANK.code}-${TOPUP_BANK.account}-compact.png?amount=${Math.round(amount)}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(TOPUP_BANK.holder)}`;
+      return `<img src="${url}" alt="VietQR nạp ví" style="width:14rem;height:14rem;max-width:100%;object-fit:contain;margin:0 auto" onerror="this.outerHTML='<p class=&quot;text-xs text-destructive p-6&quot;>Không tải được mã QR. Vui lòng chuyển khoản thủ công theo thông tin bên dưới.</p>'" />`;
+    }
+  }
+
+  function showTopupModal(requestId) {
+    const user = window.Auth ? Auth.currentUser() : null;
+    if (!user) return;
+    const req = Store.getTopups(user.id).find(t => t.id === requestId);
+    if (!req) return;
+    const old = document.getElementById('topup-modal');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'topup-modal';
+    modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/60 backdrop-blur-sm overflow-y-auto';
+
+    function row(label, value, copyValue) {
+      return `
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-muted-foreground">${label}</span>
+          <span class="flex items-center gap-2">
+            <strong class="text-foreground font-mono">${walletEsc(value)}</strong>
+            ${copyValue ? `<button type="button" onclick="App.copyToClipboard('${walletEsc(copyValue)}', '${label}')" class="px-2 py-0.5 rounded bg-background border border-border text-[11px] font-medium hover:bg-secondary transition">Sao chép</button>` : ''}
+          </span>
+        </div>`;
+    }
+
+    modal.innerHTML = `
+      <div class="max-w-md w-full bg-background rounded-3xl p-6 sm:p-8 shadow-2xl border border-border space-y-4 my-8 text-center">
+        <div class="flex items-center justify-between">
+          <h3 class="font-heading text-2xl text-foreground">Nạp tiền vào ví</h3>
+          <button type="button" id="topup-close" class="text-muted-foreground hover:text-foreground" aria-label="Đóng"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        ${buildTopupQr(req.amount, req.id)}
+        <div class="p-4 rounded-xl bg-secondary/40 text-left text-xs space-y-2 border border-border/60">
+          ${row('Ngân hàng', TOPUP_BANK.name, '')}
+          ${row('Số tài khoản', TOPUP_BANK.account, TOPUP_BANK.account)}
+          ${row('Chủ tài khoản', TOPUP_BANK.holder, '')}
+          ${row('Số tiền', Store.formatMoney(req.amount), String(req.amount))}
+          ${row('Nội dung', req.id, req.id)}
+        </div>
+        <p class="text-[11px] text-muted-foreground">
+          Quét bằng ứng dụng của <strong class="text-foreground">bất kỳ ngân hàng hoặc ví điện tử nào</strong> hỗ trợ VietQR, hoặc chuyển liên ngân hàng theo thông tin trên.
+          Vui lòng giữ nguyên <strong class="text-foreground">nội dung chuyển khoản</strong> và đúng số tiền.
+          Sau khi cửa hàng đối chiếu sao kê, tiền sẽ được cộng vào ví của bạn (trang này tự cập nhật).
+        </p>
+        <button type="button" id="topup-done" class="w-full py-3 rounded-full bg-foreground text-background text-xs uppercase tracking-widest font-semibold hover:bg-foreground/90 transition">
+          Tôi đã chuyển khoản, đóng
+        </button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    renderIcons();
+
+    const close = () => { if (modal.isConnected) modal.remove(); };
+    modal.querySelector('#topup-close').addEventListener('click', close);
+    modal.querySelector('#topup-done').addEventListener('click', close);
+
+    // Khi quản trị viên cộng tiền: báo thành công rồi tự đóng
+    Store.on('wallet:changed', function () {
+      if (!modal.isConnected) return;
+      const cur = Store.getTopups(user.id).find(t => t.id === req.id);
+      if (!cur || cur.status === 'Chờ xác nhận') return;
+      if (cur.status === 'Đã cộng tiền') {
+        modal.innerHTML = `
+          <div class="max-w-sm w-full bg-background rounded-3xl p-8 shadow-2xl border border-border text-center space-y-3 my-8">
+            <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto"><i data-lucide="check" class="w-8 h-8"></i></div>
+            <h3 class="font-heading text-2xl text-foreground">Nạp tiền thành công</h3>
+            <p class="text-xs text-muted-foreground">Đã cộng <strong class="text-foreground">${Store.formatMoney(cur.amount)}</strong> vào ví. Số dư hiện tại: <strong class="text-foreground">${Store.formatMoney(Store.getBalance(user.id))}</strong></p>
+          </div>`;
+        renderIcons();
+        setTimeout(close, 2500);
+      } else {
+        close();
+      }
+    });
+  }
+
+  function approveTopup(id) {
+    if (!(window.Auth && Auth.isAdmin())) {
+      showToast('Chỉ quản trị viên mới được cộng tiền vào ví', 'error');
+      return;
+    }
+    const req = Store.getTopups().find(t => t.id === id);
+    if (!req) return;
+    if (!confirm('Cộng ' + Store.formatMoney(req.amount) + ' vào ví của ' + req.userName + ' (mã ' + id + ')?\nHãy đối chiếu với sao kê ngân hàng (đúng số tiền và nội dung ' + id + ') trước khi xác nhận.')) return;
+    if (Store.approveTopup(id)) {
+      renderAdminPage();
+      switchAdminTab('wallet');
+    }
+  }
+
+  function rejectTopup(id) {
+    if (!(window.Auth && Auth.isAdmin())) {
+      showToast('Chỉ quản trị viên mới được từ chối yêu cầu nạp', 'error');
+      return;
+    }
+    if (!confirm('Từ chối yêu cầu nạp ' + id + '?')) return;
+    if (Store.rejectTopup(id)) {
+      showToast('Đã từ chối yêu cầu nạp ' + id);
+      renderAdminPage();
+      switchAdminTab('wallet');
+    }
+  }
+
+  // ==========================================
   // VIEW: POLICIES PAGE
   // ==========================================
   function renderPoliciesPage() {
@@ -1981,6 +2165,8 @@
     const orders = Store.getOrders();
     const products = Store.getProducts(true);
     const consultations = Store.getConsultations();
+    const topups = Store.getTopups();
+    const pendingTopups = topups.filter(t => t.status === 'Chờ xác nhận').length;
 
     const totalRevenue = orders.filter(o => o.status !== 'Đã hủy').reduce((sum, o) => sum + o.total, 0);
     const completedOrdersCount = orders.filter(o => o.status === 'Đã giao').length;
@@ -2046,6 +2232,9 @@
             </button>
             <button onclick="App.switchAdminTab('consultations')" id="adm-tab-consultations" class="admin-tab-btn pb-3 text-xs font-semibold uppercase tracking-wider border-b-2 border-transparent text-muted-foreground hover:text-foreground">
               Yêu cầu Tư vấn da (${consultations.length})
+            </button>
+            <button onclick="App.switchAdminTab('wallet')" id="adm-tab-wallet" class="admin-tab-btn pb-3 text-xs font-semibold uppercase tracking-wider border-b-2 border-transparent text-muted-foreground hover:text-foreground">
+              Nạp ví (${pendingTopups} chờ)
             </button>
           </div>
         </div>
@@ -2213,6 +2402,52 @@
                         <button type="button" onclick="App.deleteConsultation('${c.id}')" class="text-muted-foreground hover:text-destructive transition p-1" title="Xóa yêu cầu này" aria-label="Xóa yêu cầu tư vấn của ${String(c.name).replace(/"/g,'&quot;')}">
                           <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT: WALLET TOPUPS -->
+        <div id="adm-content-wallet" class="admin-tab-pane hidden space-y-4">
+          <div class="border border-border/70 rounded-2xl bg-background overflow-hidden shadow-sm">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-secondary/40 border-b border-border text-muted-foreground uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th class="py-3.5 px-4 font-semibold">Mã nạp</th>
+                    <th class="py-3.5 px-4 font-semibold">Khách hàng</th>
+                    <th class="py-3.5 px-4 font-semibold">Số tiền</th>
+                    <th class="py-3.5 px-4 font-semibold">Thời gian</th>
+                    <th class="py-3.5 px-4 font-semibold">Trạng thái</th>
+                    <th class="py-3.5 px-4 font-semibold text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border/60">
+                  ${topups.length === 0 ? '<tr><td colspan="6" class="py-10 text-center text-muted-foreground">Chưa có yêu cầu nạp ví nào.</td></tr>' : ''}
+                  ${topups.map(t => `
+                    <tr class="hover:bg-secondary/20 transition">
+                      <td class="py-3.5 px-4 font-mono font-medium text-foreground">${walletEsc(t.id)}</td>
+                      <td class="py-3.5 px-4">
+                        <p class="font-medium text-foreground">${walletEsc(t.userName)}</p>
+                        <p class="text-muted-foreground text-[11px]">${walletEsc(t.userEmail)} · ví hiện có ${Store.formatMoney(Store.getBalance(t.userId))}</p>
+                      </td>
+                      <td class="py-3.5 px-4 font-semibold text-foreground">${Store.formatMoney(t.amount)}</td>
+                      <td class="py-3.5 px-4 text-muted-foreground">${walletEsc(new Date(t.createdAt).toLocaleString('vi-VN'))}</td>
+                      <td class="py-3.5 px-4">
+                        <span class="px-2.5 py-1 rounded-md border text-[11px] font-medium ${
+                          t.status === 'Đã cộng tiền' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : t.status === 'Chờ xác nhận' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-secondary text-muted-foreground border-border'
+                        }">${walletEsc(t.status)}</span>
+                      </td>
+                      <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                        ${t.status === 'Chờ xác nhận' ? `
+                          <button type="button" onclick="App.approveTopup('${walletEsc(t.id)}')" class="px-3 py-1.5 rounded-full bg-foreground text-background text-[11px] font-semibold hover:bg-foreground/90 transition">Đã nhận tiền · Cộng ví</button>
+                          <button type="button" onclick="App.rejectTopup('${walletEsc(t.id)}')" class="ml-1 px-3 py-1.5 rounded-full border border-border text-[11px] font-medium hover:bg-secondary transition">Từ chối</button>` : ''}
                       </td>
                     </tr>
                   `).join('')}
@@ -2501,6 +2736,9 @@
     handleReviewSubmit,
     applyCoupon,
     handleCheckout,
+    showTopupModal,
+    approveTopup,
+    rejectTopup,
     handleConsultationSubmit,
     renderAdminPage,
     switchAdminTab,

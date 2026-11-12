@@ -113,4 +113,3 @@ wedmypham/
 | **`GLOW50`** | Giảm trực tiếp 50.000 đ |
 | **`FREESHIP`** | Miễn phí cước vận chuyển toàn quốc |
 *(Đơn hàng từ 500.000 đ mặc định được hệ thống tự động miễn phí vận chuyển)*
-
