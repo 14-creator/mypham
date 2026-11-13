@@ -1,6 +1,6 @@
 /**
  * TranAnh Skin - Đăng ký / Đăng nhập tài khoản
- * Lưu tài khoản và phiên đăng nhập bằng LocalStorage (không cần máy chủ).
+ * Tài khoản khách được lưu và kiểm tra trên máy chủ (/api/user + Supabase); trình duyệt chỉ giữ token phiên.
  *
  * Lưu ý bảo mật: vì toàn bộ web chạy ở trình duyệt nên đây chỉ là lớp bảo vệ giao diện.
  * Muốn bảo vệ thật sự trang Quản trị cần xác thực ở phía máy chủ.
@@ -11,8 +11,24 @@ const Auth = (function () {
 
   const KEYS = {
     USERS: 'tas_users_v1',
-    SESSION: 'tas_session_v1'
+    SESSION: 'tas_session_v1',
+    TOKEN: 'tas_token_v1'
   };
+
+  // --- Token phiên của khách (do máy chủ cấp) ---
+  function getToken() { try { return localStorage.getItem(KEYS.TOKEN) || ''; } catch (e) { return ''; } }
+  function setToken(t) {
+    try { if (t) localStorage.setItem(KEYS.TOKEN, t); else localStorage.removeItem(KEYS.TOKEN); } catch (e) { /* bỏ qua */ }
+  }
+  async function userApi(action, body, method) {
+    const opts = { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
+    const t = getToken();
+    if (t) opts.headers.Authorization = 'Bearer ' + t;
+    if (opts.method !== 'GET') opts.body = JSON.stringify(body || {});
+    const r = await fetch('/api/user?action=' + action, opts);
+    const d = await r.json().catch(function () { return {}; });
+    return { status: r.status, ok: r.ok, data: d };
+  }
 
   // Tài khoản quản trị: KHÔNG còn mật khẩu trong mã nguồn.
   // Mật khẩu quản trị là biến ADMIN_TOKEN trên Vercel và được kiểm tra ở máy chủ (/api/admin-login).
@@ -164,31 +180,35 @@ const Auth = (function () {
     if (password.length < 6) return { success: false, message: 'Mật khẩu cần ít nhất 6 ký tự' };
     if (password !== confirm) return { success: false, message: 'Mật khẩu nhập lại không khớp' };
 
-    const users = getUsers();
-    if (users.some(u => (u.email || '').toLowerCase() === email || (u.username || '').toLowerCase() === email)) {
-      return { success: false, message: 'Email này đã được đăng ký. Hãy đăng nhập.' };
+    if (window.location.protocol === 'file:') {
+      return { success: false, message: 'Đăng ký chỉ dùng được trên website đã deploy (Vercel).' };
     }
-    if (users.some(u => u.phone && u.phone === phoneNorm)) {
-      return { success: false, message: 'Số điện thoại này đã được đăng ký. Hãy đăng nhập.' };
+    let res;
+    try {
+      res = await userApi('register', { name, email, phone: phoneNorm, password });
+    } catch (e) {
+      return { success: false, message: 'Không kết nối được máy chủ. Vui lòng thử lại.' };
     }
+    if (!res.ok) return { success: false, message: res.data.error || 'Không tạo được tài khoản. Vui lòng thử lại.' };
+    return finishLogin(res.data);
+  }
 
-    const salt = randomSalt();
-    const user = {
-      id: 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      name,
-      username: email,
-      email,
-      phone: phoneNorm,
-      role: 'customer',
-      salt,
-      hash: await hashPassword(password, salt),
-      createdAt: new Date().toISOString()
+  // Lưu thông tin hiển thị của khách vào máy (KHÔNG có mật khẩu) và bắt đầu phiên
+  function finishLogin(data) {
+    const u = data.user;
+    const users = getUsers();
+    const record = {
+      id: u.id, name: u.name, username: u.email, email: u.email, phone: u.phone,
+      role: 'customer', createdAt: new Date().toISOString()
     };
-    users.push(user);
+    const idx = users.findIndex(x => x.id === u.id);
+    if (idx >= 0) { record.createdAt = users[idx].createdAt || record.createdAt; users[idx] = record; } else users.push(record);
     saveUsers(users);
-    save(KEYS.SESSION, { userId: user.id, at: Date.now() });
+    setToken(data.token);
+    save(KEYS.SESSION, { userId: u.id, at: Date.now() });
     updateAuthUI();
-    return { success: true, user };
+    if (window.Store && Store.refreshWallet) Store.refreshWallet();
+    return { success: true, user: record };
   }
 
   async function login(identifier, password) {
@@ -220,28 +240,43 @@ const Auth = (function () {
       return { success: true, user: adminUser };
     }
 
-    const phoneId = normalizePhone(id);
-    const user = getUsers().find(u =>
-      (u.username || '').toLowerCase() === id ||
-      (u.email || '').toLowerCase() === id ||
-      (phoneId && u.phone === phoneId)
-    );
-    if (!user) {
-      return {
-        success: false,
-        message: 'Không tìm thấy tài khoản "' + (identifier || '').trim() + '". Hãy nhập đúng email hoặc số điện thoại đã đăng ký (không phải tên), hoặc đăng ký mới. Lưu ý: tài khoản chỉ lưu trong trình duyệt và cách mở web bạn đã dùng lúc đăng ký.'
-      };
+    if (window.location.protocol === 'file:') {
+      return { success: false, message: 'Đăng nhập chỉ dùng được trên website đã deploy (Vercel).' };
     }
-
-    const hash = await hashPassword(password, user.salt);
-    if (hash !== user.hash) return { success: false, message: 'Mật khẩu chưa đúng. Vui lòng thử lại.' };
-
-    save(KEYS.SESSION, { userId: user.id, at: Date.now() });
-    updateAuthUI();
-    return { success: true, user };
+    let res;
+    try {
+      res = await userApi('login', { identifier: id, password });
+    } catch (e) {
+      return { success: false, message: 'Không kết nối được máy chủ. Vui lòng thử lại.' };
+    }
+    if (!res.ok) return { success: false, message: res.data.error || 'Đăng nhập không thành công. Vui lòng thử lại.' };
+    return finishLogin(res.data);
   }
 
+  // Kiểm tra phiên khách còn hợp lệ trên máy chủ; phiên cũ (tài khoản lưu trong trình duyệt) bị xóa
+  async function validateSession() {
+    const u = currentUser();
+    if (!u || u.role === 'admin' || window.location.protocol === 'file:') return;
+    if (!getToken()) {
+      try { localStorage.removeItem(KEYS.SESSION); } catch (e) { /* bỏ qua */ }
+      updateAuthUI();
+      return;
+    }
+    try {
+      const r = await userApi('me', null, 'GET');
+      if (r.status === 401) {
+        setToken('');
+        try { localStorage.removeItem(KEYS.SESSION); } catch (e) { /* bỏ qua */ }
+        updateAuthUI();
+        toast('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại', 'error');
+      }
+    } catch (e) { /* mất mạng: giữ nguyên */ }
+  }
+  ready.then(validateSession);
+
   function logout() {
+    try { if (getToken()) userApi('logout', {}); } catch (e) { /* bỏ qua */ }
+    setToken('');
     try { localStorage.removeItem(KEYS.SESSION); } catch (e) { /* bỏ qua */ }
     try { if (window.Store && Store.setAdminToken) Store.setAdminToken(''); } catch (e) { /* bỏ qua */ }
     try { if (window.Store) Store.clearCart(); } catch (e) { /* bỏ qua */ }
@@ -574,12 +609,12 @@ const Auth = (function () {
     if (input) { input.value = String(n); input.focus(); }
   }
 
-  function handleTopup(e) {
+  async function handleTopup(e) {
     e.preventDefault();
     const input = document.getElementById('topup-amount');
     const amount = parseInt(String(input ? input.value : '').replace(/[^\d]/g, ''), 10);
     try {
-      const req = Store.createTopupRequest(amount);
+      const req = await Store.createTopupRequest(amount);
       renderWalletPage();
       openTopup(req.id);
     } catch (err) {
@@ -592,9 +627,13 @@ const Auth = (function () {
     if (window.App && App.showTopupModal) App.showTopupModal(id);
   }
 
-  function cancelTopup(id) {
+  async function cancelTopup(id) {
     if (!confirm('Hủy yêu cầu nạp ' + id + '? Nếu bạn đã chuyển khoản, hãy liên hệ cửa hàng thay vì hủy.')) return;
-    if (Store.cancelTopup(id)) toast('Đã hủy yêu cầu nạp ' + id);
+    try {
+      if (await Store.cancelTopup(id)) toast('Đã hủy yêu cầu nạp ' + id);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
     renderWalletPage();
   }
 
