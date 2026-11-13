@@ -1122,8 +1122,9 @@
 
     const cartUser = window.Auth ? Auth.currentUser() : null;
     const walletBalance = cartUser ? Store.getBalance(cartUser.id) : 0;
-    // Thanh toán bằng Ví TranAnh tạm tắt: số dư ví lưu trên trình duyệt nên chưa an toàn khi bán đa thiết bị
-    const walletEnough = false;
+    // Ví TranAnh: số dư lấy từ máy chủ (làm mới mỗi 5 giây); máy chủ kiểm tra lại khi đặt hàng
+    const walletEnough = walletBalance >= summary.total && summary.total > 0;
+    if (cartUser && window.Store && Store.refreshWallet) Store.refreshWallet();
     const prefillName = cartUser && cartUser.role !== 'admin'
       ? String(cartUser.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
       : '';
@@ -1217,7 +1218,7 @@
                 <div class="pt-4 border-t border-border/60">
                   <label class="block text-xs font-medium text-foreground mb-2">Phương thức thanh toán <span class="text-destructive">*</span></label>
                   <div class="grid grid-cols-1 gap-3">
-                    <label style="display:none" class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-2 border-primary bg-primary/5' : 'border-border/80 bg-secondary/30 opacity-80'} cursor-pointer hover:border-primary transition">
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-2 border-primary bg-primary/5' : 'border-border/80 bg-secondary/30 opacity-80'} cursor-pointer hover:border-primary transition">
                       <input type="radio" name="payment_method" value="Wallet" ${walletEnough ? 'checked' : 'disabled'} class="text-primary focus:ring-0 mt-0.5" />
                       <div class="flex-1">
                         <div class="flex items-center justify-between gap-2">
@@ -1340,8 +1341,10 @@
     }
   }
 
-  function handleCheckout(e) {
+  let checkingOut = false;
+  async function handleCheckout(e) {
     e.preventDefault();
+    if (checkingOut) return;
     const name = document.getElementById('cust-name').value.trim();
     const phone = document.getElementById('cust-phone').value.trim();
     const address = document.getElementById('cust-address').value.trim();
@@ -1360,8 +1363,11 @@
       return;
     }
 
+    checkingOut = true;
+    const submitBtn = e.target && e.target.querySelector ? e.target.querySelector('button[type="submit"]') : null;
+    if (submitBtn) submitBtn.disabled = true;
     try {
-      const order = Store.createOrder({
+      const order = await Store.createOrder({
         customer: { name, phone, address, notes },
         paymentMethod: paymentMethod === 'Wallet'
           ? Store.WALLET_METHOD
@@ -1375,6 +1381,9 @@
       }
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      checkingOut = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 
@@ -2039,7 +2048,7 @@
     });
   }
 
-  function approveTopup(id) {
+  async function approveTopup(id) {
     if (!(window.Auth && Auth.isAdmin())) {
       showToast('Chỉ quản trị viên mới được cộng tiền vào ví', 'error');
       return;
@@ -2047,22 +2056,30 @@
     const req = Store.getTopups().find(t => t.id === id);
     if (!req) return;
     if (!confirm('Cộng ' + Store.formatMoney(req.amount) + ' vào ví của ' + req.userName + ' (mã ' + id + ')?\nHãy đối chiếu với sao kê ngân hàng (đúng số tiền và nội dung ' + id + ') trước khi xác nhận.')) return;
-    if (Store.approveTopup(id)) {
-      renderAdminPage();
-      switchAdminTab('wallet');
+    try {
+      if (await Store.approveTopup(id)) {
+        renderAdminPage();
+        switchAdminTab('wallet');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
     }
   }
 
-  function rejectTopup(id) {
+  async function rejectTopup(id) {
     if (!(window.Auth && Auth.isAdmin())) {
       showToast('Chỉ quản trị viên mới được từ chối yêu cầu nạp', 'error');
       return;
     }
     if (!confirm('Từ chối yêu cầu nạp ' + id + '?')) return;
-    if (Store.rejectTopup(id)) {
-      showToast('Đã từ chối yêu cầu nạp ' + id);
-      renderAdminPage();
-      switchAdminTab('wallet');
+    try {
+      if (await Store.rejectTopup(id)) {
+        showToast('Đã từ chối yêu cầu nạp ' + id);
+        renderAdminPage();
+        switchAdminTab('wallet');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
     }
   }
 
@@ -2434,7 +2451,7 @@
                       <td class="py-3.5 px-4 font-mono font-medium text-foreground">${walletEsc(t.id)}</td>
                       <td class="py-3.5 px-4">
                         <p class="font-medium text-foreground">${walletEsc(t.userName)}</p>
-                        <p class="text-muted-foreground text-[11px]">${walletEsc(t.userEmail)} · ví hiện có ${Store.formatMoney(Store.getBalance(t.userId))}</p>
+                        <p class="text-muted-foreground text-[11px]">${walletEsc(t.userEmail)} · ví hiện có ${Store.formatMoney(t.userBalance || 0)}</p>
                       </td>
                       <td class="py-3.5 px-4 font-semibold text-foreground">${Store.formatMoney(t.amount)}</td>
                       <td class="py-3.5 px-4 text-muted-foreground">${walletEsc(new Date(t.createdAt).toLocaleString('vi-VN'))}</td>
