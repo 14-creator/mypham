@@ -67,9 +67,12 @@ function sanitizeNewOrder(o) {
   const total = Math.max(0, subtotal - discount + (promo && promo.type === 'shipping' ? 0 : shippingFee));
 
   const rawMethod = String(o.paymentMethod || '');
-  if (rawMethod.indexOf('Ví') !== -1) return null; // ví nội bộ chưa hỗ trợ khi đặt từ nhiều thiết bị
-  const isQR = rawMethod.indexOf('VietQR') !== -1;
-  const method = isQR ? 'Chuyển khoản VietQR' : 'COD (Thanh toán khi nhận hàng)';
+  // Ví nội bộ: số dư lưu ở trình duyệt nên máy chủ không kiểm chứng được → luôn để "chờ đối chiếu", admin tự xác nhận
+  const isWallet = rawMethod.indexOf('Ví') !== -1;
+  const isQR = !isWallet && rawMethod.indexOf('VietQR') !== -1;
+  const method = isWallet ? 'Ví nội bộ (chờ đối chiếu)'
+    : isQR ? 'Chuyển khoản VietQR'
+    : 'COD (Thanh toán khi nhận hàng)';
   const now = new Date();
 
   return {
@@ -89,7 +92,9 @@ function sanitizeNewOrder(o) {
     appliedPromo: promo ? Object.assign({ code: code }, promo) : null,
     total: total,
     paymentMethod: method,
-    paymentStatus: isQR ? 'Chờ thanh toán' : 'Chưa thanh toán (COD)',
+    paymentStatus: isWallet ? 'Chờ đối chiếu ví'
+      : isQR ? 'Chờ thanh toán'
+      : 'Chưa thanh toán (COD)',
     status: 'Chờ xác nhận',
     carrier: 'Giao Hàng Tiết Kiệm (GHTK)',
     trackingCode: 'GHTK-' + id,
