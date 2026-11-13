@@ -516,7 +516,200 @@ const Store = (function () {
       console.warn('Failed to save orders', e);
     }
     emit('orders:changed', orders);
+    cloudAfterSave();
   }
+
+  // ===================================================================
+  // ĐỒNG BỘ ĐƠN HÀNG VỚI MÁY CHỦ (Vercel API /api/orders + Supabase)
+  //  - Khách: đơn mới được gửi lên máy chủ; trạng thái đơn được cập nhật về máy khách.
+  //  - Admin: đọc toàn bộ đơn từ máy chủ (mọi thiết bị) và ghi lại các thay đổi.
+  // ===================================================================
+  const CLOUD_API = '/api/orders';
+  const TOKEN_KEY = 'tas_admin_token_v1';
+  const SYNCED_KEY = 'tas_synced_orders_v1';   // mã đơn của khách đã gửi thành công lên máy chủ
+  const FINAL_STATUSES = ['Đã giao', 'Đã hủy'];
+  const SERVER_FIELDS = ['status', 'paymentStatus', 'paidAt', 'shippedAt', 'autoDispatched', 'timeline',
+    'customerClaimedPaid', 'claimedAt', 'trackingCode', 'carrier', 'walletRefunded', 'refundedAt'];
+
+  function getAdminToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+  function setAdminToken(t) {
+    try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* bỏ qua */ }
+    adminSnapshot = null;
+    if (t) cloudStart();
+  }
+  function cloudEnabled() { return window.location.protocol !== 'file:'; }
+  function adminActive() { return cloudEnabled() && !!getAdminToken() && !!(window.Auth && Auth.isAdmin && Auth.isAdmin()); }
+  function adminHeaders() { return { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() }; }
+  function readSet(key) {
+    try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch (e) { return new Set(); }
+  }
+  function writeSet(key, set) {
+    try { localStorage.setItem(key, JSON.stringify(Array.from(set).slice(-500))); } catch (e) { /* bỏ qua */ }
+  }
+
+  // JSON có thứ tự khóa cố định (Postgres/jsonb xáo trộn thứ tự khóa nên không so sánh trực tiếp được)
+  function stable(v) {
+    if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined; })
+        .map(function (k) { return JSON.stringify(k) + ':' + stable(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v);
+  }
+
+  let adminSnapshot = null;   // id -> JSON đang có trên máy chủ (null = admin chưa tải lần đầu)
+  let adminBusy = false;      // đang tải/ghi, tránh chồng chéo
+  let adminPushQueued = false;
+  let custBusy = false;
+
+  // ---- Phía ADMIN ----
+  async function adminLoadOrders() {
+    if (!adminActive() || adminBusy) return;
+    adminBusy = true;
+    try {
+      const r = await fetch(CLOUD_API, { headers: adminHeaders(), cache: 'no-store' });
+      if (r.status === 401) {
+        setAdminToken('');
+        emit('toast:show', { message: 'Phiên quản trị hết hạn hoặc sai mật khẩu, vui lòng đăng nhập lại', type: 'error' });
+        return;
+      }
+      if (!r.ok) return;
+      const d = await r.json();
+      const list = Array.isArray(d.orders) ? d.orders : [];
+      // Nếu admin vừa sửa mà chưa kịp lưu lên máy chủ thì không ghi đè, lưu trước đã
+      if (adminSnapshot !== null) {
+        const ids = new Set(orders.map(function (o) { return o.id; }));
+        const dirty = orders.some(function (o) { return adminSnapshot[o.id] !== stable(o); }) ||
+          Object.keys(adminSnapshot).some(function (id) { return !ids.has(id); });
+        if (dirty) { adminPushQueued = true; return; }
+      }
+      const snap = {};
+      list.forEach(function (o) { snap[o.id] = stable(o); });
+      const changed = adminSnapshot === null
+        ? true
+        : (Object.keys(snap).length !== Object.keys(adminSnapshot).length ||
+           Object.keys(snap).some(function (id) { return adminSnapshot[id] !== snap[id]; }));
+      orders = list;
+      adminSnapshot = snap;
+      try { localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders)); } catch (e) { /* bỏ qua */ }
+      if (changed) { emit('orders:changed', orders); emit('orders:remote', orders); }
+    } catch (e) { /* mất mạng: thử lại lần sau */ }
+    finally {
+      adminBusy = false;
+      if (adminPushQueued) { adminPushQueued = false; adminPush(); }
+    }
+  }
+
+  async function adminPush() {
+    if (!adminActive() || adminSnapshot === null) return;
+    if (adminBusy) { adminPushQueued = true; return; }
+    const changed = orders.filter(function (o) { return adminSnapshot[o.id] !== stable(o); });
+    const currentIds = new Set(orders.map(function (o) { return o.id; }));
+    const removed = Object.keys(adminSnapshot).filter(function (id) { return !currentIds.has(id); });
+    if (!changed.length && !removed.length) return;
+    adminBusy = true;
+    try {
+      if (changed.length) {
+        const r = await fetch(CLOUD_API, { method: 'PUT', headers: adminHeaders(), body: JSON.stringify({ orders: changed }) });
+        if (r.ok) changed.forEach(function (o) { adminSnapshot[o.id] = stable(o); });
+        else emit('toast:show', { message: 'Không lưu được thay đổi lên máy chủ, vui lòng thử lại', type: 'error' });
+      }
+      for (let i = 0; i < removed.length; i++) {
+        const r = await fetch(CLOUD_API + '?id=' + encodeURIComponent(removed[i]), { method: 'DELETE', headers: adminHeaders() });
+        if (r.ok) delete adminSnapshot[removed[i]];
+      }
+    } catch (e) {
+      emit('toast:show', { message: 'Mất kết nối máy chủ, thay đổi chưa được lưu', type: 'error' });
+    } finally { adminBusy = false; }
+  }
+
+  // ---- Phía KHÁCH ----
+  function seedIds() { return new Set(INITIAL_ORDERS.map(function (o) { return o.id; })); }
+
+  async function customerPush() {
+    if (!cloudEnabled() || adminActive() || custBusy) return;
+    const synced = readSet(SYNCED_KEY), seeds = seedIds();
+    const pending = orders.filter(function (o) { return o.userId && !synced.has(o.id) && !seeds.has(o.id); });
+    if (!pending.length) return;
+    custBusy = true;
+    try {
+      for (let i = 0; i < pending.length; i++) {
+        const o = pending[i];
+        const r = await fetch(CLOUD_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: o }) });
+        if (r.status === 201 || r.status === 409 || r.status === 400) {
+          if (r.status === 400) console.warn('Máy chủ từ chối đơn', o.id);
+          synced.add(o.id);   // 400/409: không thử lại để khỏi lặp vô hạn
+        } else break;         // lỗi mạng/máy chủ: thử lại sau
+      }
+      writeSet(SYNCED_KEY, synced);
+    } catch (e) { /* mất mạng: thử lại sau */ }
+    finally { custBusy = false; }
+  }
+
+  // Lấy trạng thái mới nhất (admin đã xác nhận/giao...) của các đơn khách đang theo dõi
+  async function customerRefresh() {
+    if (!cloudEnabled() || adminActive()) return;
+    const user = currentUser();
+    if (!user) return;
+    const synced = readSet(SYNCED_KEY);
+    const open = orders.filter(function (o) { return o.userId === user.id && synced.has(o.id) && FINAL_STATUSES.indexOf(o.status) === -1; });
+    let changed = false;
+    for (let i = 0; i < open.length; i++) {
+      const o = open[i];
+      try {
+        const r = await fetch(CLOUD_API + '?id=' + encodeURIComponent(o.id) + '&phone=' + encodeURIComponent((o.customer && o.customer.phone) || ''), { cache: 'no-store' });
+        if (!r.ok) continue;
+        const srv = (await r.json()).order;
+        if (!srv) continue;
+        SERVER_FIELDS.forEach(function (k) {
+          if (srv[k] !== undefined && stable(srv[k]) !== stable(o[k])) { o[k] = srv[k]; changed = true; }
+        });
+      } catch (e) { /* bỏ qua */ }
+    }
+    if (changed) {
+      try { localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders)); } catch (e) { /* bỏ qua */ }
+      emit('orders:changed', orders);
+    }
+  }
+
+  // Tra cứu đơn theo mã + SĐT trực tiếp trên máy chủ (dùng cho trang "Tra cứu đơn hàng")
+  async function lookupOrderRemote(id, phone) {
+    if (!cloudEnabled()) return null;
+    try {
+      const r = await fetch(CLOUD_API + '?id=' + encodeURIComponent(id) + '&phone=' + encodeURIComponent(phone), { cache: 'no-store' });
+      if (!r.ok) return null;
+      return (await r.json()).order || null;
+    } catch (e) { return null; }
+  }
+
+  async function cloudClaim(order) {
+    if (!cloudEnabled() || adminActive() || !order) return;
+    await customerPush();
+    try {
+      await fetch(CLOUD_API + '?action=claim', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: order.id, phone: (order.customer && order.customer.phone) || '' })
+      });
+    } catch (e) { /* bỏ qua */ }
+  }
+
+  function cloudAfterSave() {
+    if (!cloudEnabled()) return;
+    if (adminActive()) adminPush(); else customerPush();
+  }
+
+  let cloudTimer = null;
+  function cloudTick() {
+    if (!cloudEnabled()) return;
+    if (adminActive()) { adminLoadOrders(); }
+    else { customerPush().then(customerRefresh); }
+  }
+  function cloudStart() {
+    if (cloudTimer || !cloudEnabled()) return;
+    cloudTick();
+    cloudTimer = setInterval(cloudTick, 5000);
+  }
+  window.addEventListener('load', function () { setTimeout(cloudStart, 800); });
 
   function getOrders() {
     return [...orders];
@@ -669,6 +862,7 @@ const Store = (function () {
       completed: true
     });
     saveOrders();
+    cloudClaim(order);
     return order;
   }
 
@@ -880,6 +1074,12 @@ const Store = (function () {
     confirmOrderPaidManual,
     markOrderPaidAndShipped,
     markCustomerClaimedPaid,
+    // Đồng bộ máy chủ
+    setAdminToken,
+    getAdminToken,
+    adminLoadOrders,
+    lookupOrderRemote,
+    cloudStart,
     // Wallet
     WALLET_METHOD,
     TOPUP_MIN,
