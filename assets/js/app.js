@@ -1122,7 +1122,8 @@
 
     const cartUser = window.Auth ? Auth.currentUser() : null;
     const walletBalance = cartUser ? Store.getBalance(cartUser.id) : 0;
-    const walletEnough = walletBalance >= summary.total;
+    // Thanh toán bằng Ví TranAnh tạm tắt: số dư ví lưu trên trình duyệt nên chưa an toàn khi bán đa thiết bị
+    const walletEnough = false;
     const prefillName = cartUser && cartUser.role !== 'admin'
       ? String(cartUser.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
       : '';
@@ -1216,7 +1217,7 @@
                 <div class="pt-4 border-t border-border/60">
                   <label class="block text-xs font-medium text-foreground mb-2">Phương thức thanh toán <span class="text-destructive">*</span></label>
                   <div class="grid grid-cols-1 gap-3">
-                    <label class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-2 border-primary bg-primary/5' : 'border-border/80 bg-secondary/30 opacity-80'} cursor-pointer hover:border-primary transition">
+                    <label style="display:none" class="flex items-start gap-3 p-3.5 rounded-xl border ${walletEnough ? 'border-2 border-primary bg-primary/5' : 'border-border/80 bg-secondary/30 opacity-80'} cursor-pointer hover:border-primary transition">
                       <input type="radio" name="payment_method" value="Wallet" ${walletEnough ? 'checked' : 'disabled'} class="text-primary focus:ring-0 mt-0.5" />
                       <div class="flex-1">
                         <div class="flex items-center justify-between gap-2">
@@ -2722,6 +2723,20 @@
   }
   setInterval(pollClaimsFromServer, 4000);
   Store.on('orders:changed', notifyAdminOfClaims);
+
+  // Đơn mới từ khách (mọi thiết bị) vừa về máy chủ: tự làm mới trang quản trị, giữ nguyên tab đang xem
+  Store.on('orders:remote', function () {
+    if (!/^#\/admin/.test(window.location.hash)) return;
+    if (!(window.Auth && Auth.isAdmin())) return;
+    if (document.querySelector('#add-product-modal, [id^="edit-product"]')) return; // đang sửa sản phẩm: không làm gián đoạn
+    const active = document.querySelector('.admin-tab-btn.border-foreground');
+    const key = active && active.id ? active.id.replace('adm-tab-', '') : 'orders';
+    const y = window.scrollY;
+    renderAdminPage();
+    switchAdminTab(key);
+    window.scrollTo(0, y);
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+  });
 
   // --- GLOBAL EXPORTS ---
   window.App = {
