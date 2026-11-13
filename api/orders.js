@@ -1,11 +1,11 @@
 // /api/orders
-//  - POST            : khách tạo đơn mới (công khai, đã làm sạch dữ liệu)
+//  - POST            : khách ĐÃ ĐĂNG NHẬP tạo đơn mới (Authorization: Bearer). Thanh toán ví được trừ tiền thật ở máy chủ
 //  - POST ?action=claim : khách báo "Tôi đã thanh toán" (cần mã đơn + SĐT)
 //  - GET ?id=&phone= : khách tra cứu đơn của mình (cần mã đơn + SĐT)
 //  - GET             : admin xem toàn bộ đơn (cần header x-admin-token)
 //  - PUT             : admin cập nhật/ghi đè đơn (cần token)
 //  - DELETE ?id=     : admin xóa đơn (cần token)
-const { sb, isAdmin, digits, readBody, configured } = require('./_db');
+const { sb, rpc, isAdmin, digits, readBody, configured, getSessionUser } = require('./_db');
 
 const MAX_ITEMS = 50;
 
@@ -29,7 +29,7 @@ function cleanImg(v) {
 }
 
 // Làm sạch đơn do khách gửi: KHÔNG tin các trường trạng thái/thanh toán từ trình duyệt
-function sanitizeNewOrder(o) {
+function sanitizeNewOrder(o, user) {
   if (!o || typeof o !== 'object') return null;
   const id = String(o.id || '').slice(0, 40);
   if (!/^TAS-\d{4}-\d{3,8}$/.test(id)) return null;
@@ -67,18 +67,17 @@ function sanitizeNewOrder(o) {
   const total = Math.max(0, subtotal - discount + (promo && promo.type === 'shipping' ? 0 : shippingFee));
 
   const rawMethod = String(o.paymentMethod || '');
-  // Ví nội bộ: số dư lưu ở trình duyệt nên máy chủ không kiểm chứng được → luôn để "chờ đối chiếu", admin tự xác nhận
   const isWallet = rawMethod.indexOf('Ví') !== -1;
   const isQR = !isWallet && rawMethod.indexOf('VietQR') !== -1;
-  const method = isWallet ? 'Ví nội bộ (chờ đối chiếu)'
+  const method = isWallet ? 'Ví TranAnh'
     : isQR ? 'Chuyển khoản VietQR'
     : 'COD (Thanh toán khi nhận hàng)';
   const now = new Date();
 
-  return {
+  const order = {
     id: id,
-    userId: cleanStr(o.userId, 60),
-    userName: cleanStr(o.userName, 100),
+    userId: user.id,                      // lấy từ phiên đăng nhập, không tin trình duyệt
+    userName: cleanStr(user.name, 100),
     customer: {
       name: cleanStr(c.name, 100),
       phone: cleanStr(c.phone, 20),
@@ -92,9 +91,7 @@ function sanitizeNewOrder(o) {
     appliedPromo: promo ? Object.assign({ code: code }, promo) : null,
     total: total,
     paymentMethod: method,
-    paymentStatus: isWallet ? 'Chờ đối chiếu ví'
-      : isQR ? 'Chờ thanh toán'
-      : 'Chưa thanh toán (COD)',
+    paymentStatus: (isQR || isWallet) ? 'Chờ thanh toán' : 'Chưa thanh toán (COD)',
     status: 'Chờ xác nhận',
     carrier: 'Giao Hàng Tiết Kiệm (GHTK)',
     trackingCode: 'GHTK-' + id,
@@ -107,6 +104,50 @@ function sanitizeNewOrder(o) {
     }],
     createdAt: now.toISOString()
   };
+  // mã tham chiếu duy nhất cho giao dịch ví của đơn này (dùng cho cả trừ tiền và hoàn tiền)
+  if (isWallet) order.walletRef = id + '@' + now.getTime();
+  return { order: order, wallet: isWallet };
+}
+
+function nowStamp() {
+  const now = new Date();
+  return {
+    iso: now.toISOString(),
+    time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }),
+    date: now.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
+  };
+}
+
+// Hoàn tiền ví cho đơn đã trả bằng ví (mỗi đơn chỉ hoàn 1 lần nhờ ràng buộc unique ở CSDL).
+// Trả về 'ok' (đã hoàn, order.walletRefunded = true), 'none' (không có gì để hoàn) hoặc 'fail' (lỗi, cần thử lại)
+async function refundIfNeeded(order, why) {
+  if (!order || !order.walletPaid || order.walletRefunded || !order.userId) return 'none';
+  try {
+    const u = await sb('users?id=eq.' + encodeURIComponent(order.userId) + '&select=id');
+    if (!u || !u.length) { console.warn('refund skipped, user not on server', order.id); return 'none'; }
+    const r = await rpc('wallet_apply', {
+      p_user: order.userId,
+      p_delta: Math.round(order.walletPaid),
+      p_type: 'refund',
+      p_desc: why + ' ' + order.id,
+      p_ref: order.walletRef || order.id
+    });
+    if (!r || !r.ok) return 'fail';
+    const st = nowStamp();
+    order.walletRefunded = true;
+    order.refundedAt = st.iso;
+    order.timeline = order.timeline || [];
+    order.timeline.push({
+      time: st.time, date: st.date,
+      title: 'Hoàn tiền vào Ví TranAnh',
+      desc: 'Đã hoàn ' + Math.round(order.walletPaid).toLocaleString('vi-VN') + ' đ vào ví của khách.',
+      completed: true
+    });
+    return 'ok';
+  } catch (e) {
+    console.error('refund error', order.id, e.status, e.detail || e.message);
+    return 'fail';
+  }
 }
 
 function samePhone(order, phone) {
@@ -162,14 +203,67 @@ module.exports = async function handler(req, res) {
 
     // ---------- KHÁCH: tạo đơn mới ----------
     if (req.method === 'POST') {
+      const user = await getSessionUser(req);
+      if (!user) return res.status(401).json({ error: 'Vui lòng đăng nhập để đặt hàng' });
       const b = await readBody(req);
-      const order = sanitizeNewOrder(b.order);
-      if (!order) return res.status(400).json({ error: 'Dữ liệu đơn hàng không hợp lệ' });
+      const clean = sanitizeNewOrder(b.order, user);
+      if (!clean) return res.status(400).json({ error: 'Dữ liệu đơn hàng không hợp lệ' });
+      const order = clean.order;
       try {
         await sb('orders', { method: 'POST', body: { id: order.id, data: order, created_at: order.createdAt } });
       } catch (e) {
         if (e.status === 409) return res.status(409).json({ error: 'Mã đơn đã tồn tại' });
         throw e;
+      }
+
+      if (clean.wallet) {
+        const delOrder = function () {
+          return sb('orders?id=eq.' + encodeURIComponent(order.id), { method: 'DELETE' }).catch(function () {});
+        };
+        // 1) Trừ tiền ví thật (nguyên tử, không bao giờ âm). Không đủ tiền thì hủy đơn vừa tạo.
+        if (order.total > 0) {
+          let pay;
+          try {
+            pay = await rpc('wallet_apply', {
+              p_user: user.id, p_delta: -order.total, p_type: 'payment',
+              p_desc: 'Thanh toán đơn hàng ' + order.id, p_ref: order.walletRef
+            });
+          } catch (e) { await delOrder(); throw e; }
+          if (!pay || !pay.ok || pay.duplicate) {
+            await delOrder();
+            const bal = Number((pay && pay.balance) || 0);
+            return res.status(402).json({
+              error: 'Số dư ví không đủ. Vui lòng nạp thêm ' + Math.max(0, order.total - bal).toLocaleString('vi-VN') + ' đ hoặc chọn phương thức khác.',
+              balance: bal
+            });
+          }
+        }
+        // 2) Ghi nhận đã thanh toán
+        const st = nowStamp();
+        order.paymentStatus = 'Đã thanh toán (Ví TranAnh)';
+        order.status = 'Đang chuẩn bị';
+        order.walletPaid = order.total;
+        order.paidAt = st.iso;
+        order.timeline.push({
+          time: st.time, date: st.date,
+          title: 'Thanh toán bằng Ví TranAnh',
+          desc: 'Đã trừ ' + order.total.toLocaleString('vi-VN') + ' đ từ ví của ' + order.userName + '. Cửa hàng đang chuẩn bị đơn.',
+          completed: true
+        });
+        let saved = false;
+        for (let i = 0; i < 2 && !saved; i++) {
+          try { await sb('orders?id=eq.' + encodeURIComponent(order.id), { method: 'PATCH', body: { data: order } }); saved = true; }
+          catch (e) { console.error('save paid order failed', order.id, e.status, e.detail || e.message); }
+        }
+        if (!saved) {
+          // không ghi được trạng thái đã trả → hoàn tiền và hủy đơn để ví và đơn không bao giờ lệch nhau
+          if (order.total > 0) {
+            try { await rpc('wallet_apply', { p_user: user.id, p_delta: order.total, p_type: 'refund', p_desc: 'Hoàn tiền đơn lỗi ' + order.id, p_ref: order.walletRef }); }
+            catch (e) { console.error('rollback refund failed', order.id, e.status, e.detail || e.message); }
+          }
+          await delOrder();
+          return res.status(500).json({ error: 'Lỗi máy chủ, đơn chưa được tạo và ví không bị trừ tiền. Vui lòng thử lại.' });
+        }
       }
       return res.status(201).json({ ok: true, order: order });
     }
@@ -185,17 +279,44 @@ module.exports = async function handler(req, res) {
     if (req.method === 'PUT') {
       const b = await readBody(req);
       const list = Array.isArray(b.orders) ? b.orders : (b.order ? [b.order] : []);
-      const rows = list.filter(function (o) { return o && o.id; }).slice(0, 100).map(function (o) {
-        return { id: cleanStr(o.id, 40), data: o, created_at: o.createdAt || new Date().toISOString() };
-      });
+      const rows = [];
+      let failed = 0;
+      const WALLET_FIELDS = ['walletPaid', 'walletRef', 'walletRefunded', 'refundedAt'];
+      const incoming = list.filter(function (o) { return o && o.id; }).slice(0, 100);
+      for (let i = 0; i < incoming.length; i++) {
+        const o = incoming[i];
+        const id = cleanStr(o.id, 40);
+        const ex = await getOne(id);
+        // Các trường liên quan tiền ví do MÁY CHỦ quyết định, admin/trình duyệt không được tự sửa
+        WALLET_FIELDS.forEach(function (k) {
+          if (ex && ex[k] !== undefined) o[k] = ex[k]; else delete o[k];
+        });
+        if (ex) {
+          // đơn đã hoàn tiền thì không được mở lại (tránh khách vừa nhận hàng vừa được hoàn tiền)
+          if (ex.walletRefunded && o.status !== 'Đã hủy') o.status = 'Đã hủy';
+          if (o.status === 'Đã hủy') {
+            const rf = await refundIfNeeded(o, 'Hoàn tiền đơn đã hủy');
+            if (rf === 'fail') { failed++; continue; }   // chưa hoàn được → không lưu, client sẽ thử lại
+          }
+        }
+        rows.push({ id: id, data: o, created_at: o.createdAt || new Date().toISOString() });
+      }
       if (rows.length) {
         await sb('orders?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: rows });
       }
+      if (failed) return res.status(500).json({ error: 'Không hoàn được tiền vào ví cho ' + failed + ' đơn, vui lòng thử lại', count: rows.length });
       return res.status(200).json({ ok: true, count: rows.length });
     }
 
     if (req.method === 'DELETE') {
       if (!q.id) return res.status(400).json({ error: 'Thiếu id' });
+      const ex = await getOne(String(q.id));
+      // xóa đơn chưa giao thì hoàn tiền ví trước (nếu đơn đã trả bằng ví)
+      if (ex && ex.status !== 'Đã giao') {
+        if ((await refundIfNeeded(ex, 'Hoàn tiền đơn bị xóa')) === 'fail') {
+          return res.status(500).json({ error: 'Không hoàn được tiền vào ví, đơn chưa bị xóa' });
+        }
+      }
       await sb('orders?id=eq.' + encodeURIComponent(String(q.id)), { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
