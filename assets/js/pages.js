@@ -284,12 +284,18 @@
       out.innerHTML = '';
       if (!id || ph.length < 9) { err.textContent = t(L('Vui lòng nhập mã đơn và số điện thoại hợp lệ.', 'Please enter a valid order code and phone number.')); return; }
       err.textContent = '';
-      var order = Store.getOrders().filter(function (o) {
+      var local = Store.getOrders().filter(function (o) {
         var op = String((o.customer && o.customer.phone) || '').replace(/\D/g, '');
         return o.id.toUpperCase() === id && op.slice(-9) === ph.slice(-9);
       })[0];
-      if (!order) { err.textContent = t(L('Không tìm thấy đơn hàng khớp với thông tin đã nhập.', 'No order matches the details you entered.')); return; }
-      out.innerHTML = trackCard(order);
+      // Ưu tiên tra trên máy chủ (đơn đặt từ thiết bị khác); lỗi mạng thì dùng bản trên máy này
+      var ent = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+      var decode = function (v) { return typeof v === 'string' ? v.replace(/&(amp|lt|gt|quot|#39);/g, function (m) { return ent[m]; }) : v; };
+      Store.lookupOrderRemote(id, ph).then(function (remote) {
+        var order = remote ? JSON.parse(JSON.stringify(remote), function (k, v) { return decode(v); }) : local;
+        if (!order) { err.textContent = t(L('Không tìm thấy đơn hàng khớp với thông tin đã nhập.', 'No order matches the details you entered.')); return; }
+        out.innerHTML = trackCard(order);
+      });
     });
   }
 
