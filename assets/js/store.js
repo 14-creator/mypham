@@ -692,7 +692,7 @@ const Store = (function () {
     const isQR = !!paymentMethod && paymentMethod.includes('VietQR');
     const useWallet = paymentMethod === WALLET_METHOD;
     if (useWallet && !cloudEnabled()) throw new Error('Thanh toán bằng ví chỉ dùng được trên website đã deploy');
-    if (useWallet && !userToken()) throw new Error('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại');
+    if (cloudEnabled() && !userToken()) throw new Error('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại');
 
     function newId() {
       let id;
@@ -737,8 +737,8 @@ const Store = (function () {
       };
     }
 
-    // COD / VietQR: lưu ngay trên máy khách rồi đồng bộ lên máy chủ như trước
-    if (!useWallet) {
+    // Chỉ khi mở trực tiếp file (không có máy chủ) mới lưu cục bộ
+    if (!cloudEnabled()) {
       const newOrder = build(newId());
       orders.unshift(newOrder);
       saveOrders();
@@ -746,14 +746,17 @@ const Store = (function () {
       return newOrder;
     }
 
-    // Ví: MÁY CHỦ trừ tiền và tạo đơn trong cùng một bước; chỉ khi thành công mới ghi đơn về máy khách
+    // MỌI phương thức (COD, VietQR, Ví): gửi lên MÁY CHỦ trước; chỉ khi máy chủ nhận đơn mới báo thành công.
+    // Với ví, máy chủ còn trừ tiền trong cùng một bước.
     for (let attempt = 0; attempt < 3; attempt++) {
       const draft = build(newId());
       let r;
       try {
         r = await fetch(CLOUD_API, { method: 'POST', headers: userHeaders(), body: JSON.stringify({ order: draft }) });
       } catch (e) {
-        throw new Error('Mất kết nối khi đặt hàng. Vui lòng kiểm tra lại số dư ví và lịch sử đơn trước khi thử lại.');
+        throw new Error(useWallet
+          ? 'Mất kết nối khi đặt hàng. Vui lòng kiểm tra lại số dư ví và lịch sử đơn trước khi thử lại.'
+          : 'Mất kết nối khi đặt hàng, đơn chưa được tạo. Vui lòng kiểm tra mạng và thử lại.');
       }
       const d = await r.json().catch(function () { return {}; });
       if (r.status === 409) continue;   // trùng mã đơn: tạo mã khác (chưa trừ tiền)
