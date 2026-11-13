@@ -14,11 +14,11 @@ const Auth = (function () {
     SESSION: 'tas_session_v1'
   };
 
-  // Tài khoản quản trị mặc định
+  // Tài khoản quản trị: KHÔNG còn mật khẩu trong mã nguồn.
+  // Mật khẩu quản trị là biến ADMIN_TOKEN trên Vercel và được kiểm tra ở máy chủ (/api/admin-login).
   const ADMIN_SEED = {
     id: 'admin',
     username: 'TRANANH',
-    password: '2005',
     name: 'Quản trị viên TranAnh',
     salt: 'tas-admin'
   };
@@ -109,7 +109,8 @@ const Auth = (function () {
   // Luôn đảm bảo tài khoản admin tồn tại và đúng quyền
   const ready = (async function ensureAdmin() {
     const users = getUsers();
-    const hash = await hashPassword(ADMIN_SEED.password, ADMIN_SEED.salt);
+    // hash ngẫu nhiên: không ai đăng nhập được tài khoản admin bằng cách kiểm tra cục bộ
+    const hash = await hashPassword(randomSalt() + randomSalt(), ADMIN_SEED.salt);
     const record = {
       id: ADMIN_SEED.id,
       name: ADMIN_SEED.name,
@@ -143,7 +144,10 @@ const Auth = (function () {
 
   function isAdmin() {
     const u = currentUser();
-    return !!u && u.role === 'admin';
+    if (!u || u.role !== 'admin') return false;
+    // Trên website đã deploy, phải có mật khẩu quản trị đã được máy chủ xác nhận trong phiên này
+    if (window.location.protocol === 'file:') return true;
+    return !!(window.Store && Store.getAdminToken && Store.getAdminToken());
   }
 
   // --- Nghiệp vụ ---
@@ -192,6 +196,30 @@ const Auth = (function () {
     const id = (identifier || '').trim().toLowerCase();
     if (!id || !password) return { success: false, message: 'Vui lòng nhập đầy đủ thông tin đăng nhập' };
 
+    // Đăng nhập quản trị: kiểm tra mật khẩu ở máy chủ
+    if (id === ADMIN_SEED.username.toLowerCase()) {
+      if (window.location.protocol === 'file:') {
+        return { success: false, message: 'Đăng nhập quản trị chỉ dùng được trên website đã deploy (Vercel).' };
+      }
+      try {
+        const r = await fetch('/api/admin-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        if (r.status === 401) return { success: false, message: 'Mật khẩu quản trị chưa đúng.' };
+        if (!r.ok) return { success: false, message: 'Máy chủ chưa sẵn sàng (kiểm tra biến ADMIN_TOKEN trên Vercel).' };
+      } catch (e) {
+        return { success: false, message: 'Không kết nối được máy chủ. Vui lòng thử lại.' };
+      }
+      if (window.Store && Store.setAdminToken) Store.setAdminToken(password);
+      const adminUser = getUsers().find(u => u.id === ADMIN_SEED.id);
+      if (!adminUser) return { success: false, message: 'Không tìm thấy tài khoản quản trị. Hãy tải lại trang.' };
+      save(KEYS.SESSION, { userId: adminUser.id, at: Date.now() });
+      updateAuthUI();
+      return { success: true, user: adminUser };
+    }
+
     const phoneId = normalizePhone(id);
     const user = getUsers().find(u =>
       (u.username || '').toLowerCase() === id ||
@@ -215,6 +243,7 @@ const Auth = (function () {
 
   function logout() {
     try { localStorage.removeItem(KEYS.SESSION); } catch (e) { /* bỏ qua */ }
+    try { if (window.Store && Store.setAdminToken) Store.setAdminToken(''); } catch (e) { /* bỏ qua */ }
     try { if (window.Store) Store.clearCart(); } catch (e) { /* bỏ qua */ }
     updateAuthUI();
     toast('Đã đăng xuất');
@@ -224,7 +253,7 @@ const Auth = (function () {
   // --- Cập nhật giao diện header / menu / footer ---
   function updateAuthUI() {
     const user = currentUser();
-    const admin = !!user && user.role === 'admin';
+    const admin = isAdmin();
 
     document.querySelectorAll('[data-auth="guest"]').forEach(el => {
       el.style.display = user ? 'none' : '';
